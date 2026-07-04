@@ -1,4 +1,4 @@
-warn("[v48] === СКРИПТ ЗАПУЩЕН ===")
+warn("[v49] === СКРИПТ ЗАПУЩЕН ===")
 if _G.NPCKillTesterPro and _G.NPCKillTesterPro.Unload then
     _G.NPCKillTesterPro.Unload()
     task.wait(0.3)
@@ -111,6 +111,7 @@ local RecordedCalls = {}
 local RemoteMutation = { hooked = {}, lastCall = nil }
 local StolenEventCache = { hookedRemotes = {}, stolen = {} }
 local MethodRegistry = {}
+local antiRollback, MASTER, NUCLEAR
 local function reg(id, cast, name, desc, fn, defEn)
     MethodEnabled[id] = defEn ~= false
     table.insert(MethodRegistry, {id=id, cast=cast, name=name, desc=desc, fn=fn})
@@ -1620,7 +1621,7 @@ local function m_196(o)
     end)
 end
 reg(196, "BossSpecial", "196. 🎯 Humanoid Full Reset", "Все свойства → 0/false", m_196)
-local function antiRollback(o)
+antiRollback = function(o)
     local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
     if rollbackGuards[o] then rollbackGuards[o]:Disconnect() end
     local last = h.Health
@@ -1631,25 +1632,36 @@ local function antiRollback(o)
     end)
     task.delay(15, function() if rollbackGuards[o] then rollbackGuards[o]:Disconnect(); rollbackGuards[o] = nil end end)
 end
-local function MASTER(o)
-    if not o or not o.Parent then return end
+MASTER = function(o)
+    if not o or not o.Parent then warn("[MASTER] no target"); return end
+    warn("[MASTER] fire on: " .. tostring(o.Name) .. " | Registry size: " .. #MethodRegistry)
     claimFE(o)
     task.spawn(function() antiRollback(o) end)
     task.spawn(function()
+        local fired = 0
         for _, m in ipairs(MethodRegistry) do
             if CastEnabled[m.cast] and MethodEnabled[m.id] then
-                task.spawn(function() pcall(function() m.fn(o) end) end)
+                fired = fired + 1
+                task.spawn(function()
+                    local ok, err = pcall(function() m.fn(o) end)
+                    if not ok then warn("[MASTER] " .. m.name .. " ERR: " .. tostring(err)) end
+                end)
                 if not canRun() then task.wait() end
             end
         end
+        warn("[MASTER] Fired methods: " .. fired)
     end)
 end
-local function NUCLEAR(o)
+NUCLEAR = function(o)
     if not o or not o.Parent then return end
+    warn("[NUCLEAR] fire on: " .. tostring(o.Name))
     claimFE(o); task.spawn(function() antiRollback(o) end)
     task.spawn(function()
         for _, m in ipairs(MethodRegistry) do
-            task.spawn(function() pcall(function() m.fn(o) end) end)
+            task.spawn(function()
+                local ok, err = pcall(function() m.fn(o) end)
+                if not ok then warn("[NUCLEAR] " .. m.name .. " ERR: " .. tostring(err)) end
+            end)
             if not canRun() then task.wait() end
         end
     end)
