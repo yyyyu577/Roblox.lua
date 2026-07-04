@@ -1,4 +1,4 @@
-warn("[v49] === СКРИПТ ЗАПУЩЕН ===")
+warn("[v50] === СКРИПТ ЗАПУЩЕН — 140 методов, FE-Anti-Kick, умный анализатор ===")
 if _G.NPCKillTesterPro and _G.NPCKillTesterPro.Unload then
     _G.NPCKillTesterPro.Unload()
     task.wait(0.3)
@@ -100,12 +100,9 @@ local CastEnabled = {
 local MethodEnabled = {}
 local CombatSettings = { DamageAmount = 50000, HyperSpeed = false }
 local DeepData = {
-    CombatRemotes = {},
-    DamageRemotes = {},
-    WeaponRemotes = {},
-    BossRemotes = {},
-    Bindables = {},
-    BossModels = {},
+    CombatRemotes = {}, DamageRemotes = {}, WeaponRemotes = {}, BossRemotes = {},
+    AbilityRemotes = {}, UnknownRemotes = {}, Bindables = {}, BossModels = {},
+    Tools = {}, AnticheatScripts = {}, CombatScripts = {}, WeaponScripts = {},
 }
 local RecordedCalls = {}
 local RemoteMutation = { hooked = {}, lastCall = nil }
@@ -117,45 +114,68 @@ local function reg(id, cast, name, desc, fn, defEn)
     table.insert(MethodRegistry, {id=id, cast=cast, name=name, desc=desc, fn=fn})
 end
 local function safeLower(s) return (type(s)=="string") and string.lower(s) or "" end
+local COMBAT_KW = {"attack","damage","hit","combat","kill","strike","swing","slash","shoot","fire","cast","skill","ability","weapon","dealdmg","dodamage","hurt","assault","punch","stab","pierce","slay","fight","execute"}
+local DAMAGE_KW = {"damage","dealdamage","takedamage","dmg","hurt","inflict","hp","health","lifesteal","harm"}
+local BOSS_KW = {"boss","raid","dungeon","miniboss","elite","warlord","captain","overlord","titan","lord"}
+local HONEY_KW = {"ban","kick","anticheat","ac_","log","report","detect","security","flag","suspicious","validate","verif","sanity","protect"}
+local WEAPON_KW = {"weapon","sword","gun","blade","axe","bow","staff","spear","hammer","knife","dagger","katana","tool","equip"}
+local BINDABLE_KW = {"die","dead","kill","damage","death","defeat","expire","perish","destroy","despawn"}
+local ABILITY_KW = {"ability","skill","cast","spell","power","special","ultimate","move","technique"}
+local function matchAny(str, list)
+    for _,kw in ipairs(list) do if str:find(kw) then return true end end
+    return false
+end
+local function safeInsert(list, item)
+    if not table.find(list, item) then table.insert(list, item); return true end
+    return false
+end
 local function indexObject(obj)
     if not obj then return end
     pcall(function()
-        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-            local nm = safeLower(obj.Name)
-            local fnm = obj.Parent and safeLower(obj.Parent.Name) or ""
-            local honey = nm:find("ban") or nm:find("kick") or nm:find("anticheat") or nm:find("ac_") or nm:find("log") or nm:find("report") or nm:find("detect") or nm:find("security") or nm:find("flag") or fnm:find("anticheat") or fnm:find("bansystem")
-            if honey then return end
-            local isCombat = nm:find("attack") or nm:find("damage") or nm:find("hit") or nm:find("combat") or nm:find("kill") or nm:find("strike") or nm:find("swing") or nm:find("slash") or nm:find("shoot") or nm:find("fire") or nm:find("cast") or nm:find("skill") or nm:find("ability") or nm:find("weapon") or nm:find("attackevent") or nm:find("hitevent") or nm:find("damageevent") or fnm:find("combat") or fnm:find("weapon")
-            local isDamage = nm:find("damage") or nm:find("dealdamage") or nm:find("takedamage") or nm:find("dmg") or nm:find("hurt") or nm:find("inflict")
-            local isBoss = nm:find("boss") or nm:find("raid") or nm:find("dungeon") or nm:find("miniboss") or fnm:find("boss")
-            if isCombat and not table.find(DeepData.CombatRemotes, obj) then table.insert(DeepData.CombatRemotes, obj) end
-            if isDamage and not table.find(DeepData.DamageRemotes, obj) then table.insert(DeepData.DamageRemotes, obj) end
-            if isBoss and not table.find(DeepData.BossRemotes, obj) then table.insert(DeepData.BossRemotes, obj) end
-        end
-        if obj:IsA("Tool") then
+        local cls = obj.ClassName
+        local nm = safeLower(obj.Name)
+        local fnm = obj.Parent and safeLower(obj.Parent.Name) or ""
+        local fullPath = nm .. "|" .. fnm
+        if cls == "RemoteEvent" or cls == "RemoteFunction" then
+            if matchAny(fullPath, HONEY_KW) then return end
+            local isCombat = matchAny(fullPath, COMBAT_KW)
+            local isDamage = matchAny(fullPath, DAMAGE_KW)
+            local isBoss = matchAny(fullPath, BOSS_KW)
+            local isAbility = matchAny(fullPath, ABILITY_KW)
+            if isCombat then safeInsert(DeepData.CombatRemotes, obj) end
+            if isDamage then safeInsert(DeepData.DamageRemotes, obj) end
+            if isBoss then safeInsert(DeepData.BossRemotes, obj) end
+            if isAbility then safeInsert(DeepData.AbilityRemotes, obj) end
+            if not isCombat and not isDamage and not isBoss and not isAbility then
+                safeInsert(DeepData.UnknownRemotes, obj)
+            end
+        elseif cls == "Tool" or cls == "HopperBin" then
             for _,r in ipairs(obj:GetDescendants()) do
-                if (r:IsA("RemoteEvent") or r:IsA("RemoteFunction")) and not table.find(DeepData.WeaponRemotes, r) then
-                    table.insert(DeepData.WeaponRemotes, r)
-                end
+                local rc = r.ClassName
+                if rc == "RemoteEvent" or rc == "RemoteFunction" then safeInsert(DeepData.WeaponRemotes, r) end
+                if rc == "LocalScript" or rc == "Script" then safeInsert(DeepData.WeaponScripts, r) end
             end
-        end
-        if obj:IsA("BindableEvent") or obj:IsA("BindableFunction") then
-            local nm = safeLower(obj.Name)
-            if nm:find("die") or nm:find("dead") or nm:find("kill") or nm:find("damage") or nm:find("death") or nm:find("defeat") then
-                if not table.find(DeepData.Bindables, obj) then table.insert(DeepData.Bindables, obj) end
-            end
+            safeInsert(DeepData.Tools, obj)
+        elseif cls == "BindableEvent" or cls == "BindableFunction" then
+            if matchAny(nm, BINDABLE_KW) then safeInsert(DeepData.Bindables, obj) end
+        elseif cls == "LocalScript" or cls == "Script" or cls == "ModuleScript" then
+            if matchAny(fullPath, HONEY_KW) then safeInsert(DeepData.AnticheatScripts, obj) end
+            if matchAny(fullPath, COMBAT_KW) then safeInsert(DeepData.CombatScripts, obj) end
         end
     end)
 end
 local function scanForBosses()
     DeepData.BossModels = {}
     for _,m in ipairs(ws:GetDescendants()) do
-        if m:IsA("Model") and m ~= lp.Character then
+        if m:IsA("Model") and m ~= lp.Character and not plrs:GetPlayerFromCharacter(m) then
             pcall(function()
                 local nm = safeLower(m.Name)
-                if nm:find("boss") or nm:find("killer") or nm:find("thanos") or nm:find("raid") or m:GetAttribute("Boss") or m:GetAttribute("IsBoss") then
-                    if not table.find(DeepData.BossModels, m) then table.insert(DeepData.BossModels, m) end
+                local isBoss = matchAny(nm, BOSS_KW) or m:GetAttribute("Boss") or m:GetAttribute("IsBoss") or m:GetAttribute("BossType")
+                if not isBoss then
+                    local h = m:FindFirstChildOfClass("Humanoid")
+                    if h and h.MaxHealth >= 1000 then isBoss = true end
                 end
+                if isBoss then safeInsert(DeepData.BossModels, m) end
             end)
         end
     end
@@ -165,144 +185,149 @@ local function runAnalysis()
     DeepData.DamageRemotes = {}
     DeepData.WeaponRemotes = {}
     DeepData.BossRemotes = {}
+    DeepData.AbilityRemotes = {}
+    DeepData.UnknownRemotes = {}
     DeepData.Bindables = {}
+    DeepData.Tools = {}
+    DeepData.AnticheatScripts = {}
+    DeepData.CombatScripts = {}
+    DeepData.WeaponScripts = {}
     for _,o in ipairs(rep:GetDescendants()) do indexObject(o) end
     for _,o in ipairs(ws:GetDescendants()) do indexObject(o) end
     for _,p in ipairs(plrs:GetPlayers()) do
         local bp = p:FindFirstChild("Backpack")
         if bp then for _,o in ipairs(bp:GetDescendants()) do indexObject(o) end end
     end
+    pcall(function() for _,o in ipairs(game:GetService("StarterPack"):GetDescendants()) do indexObject(o) end end)
+    pcall(function() for _,o in ipairs(game:GetService("StarterPlayer"):GetDescendants()) do indexObject(o) end end)
     scanForBosses()
-    print(string.format("[🤖 v43 ANALYZER] Combat:%d | Damage:%d | Weapon:%d | Boss:%d | Bindable:%d | BossModels:%d",
-        #DeepData.CombatRemotes, #DeepData.DamageRemotes, #DeepData.WeaponRemotes, #DeepData.BossRemotes, #DeepData.Bindables, #DeepData.BossModels))
+    print(string.format("[🤖 v50 ANALYZER] Combat:%d Damage:%d Weapon:%d Boss:%d Ability:%d Bindable:%d Tools:%d BossModels:%d Unknown:%d AntiCheat:%d",
+        #DeepData.CombatRemotes, #DeepData.DamageRemotes, #DeepData.WeaponRemotes, #DeepData.BossRemotes,
+        #DeepData.AbilityRemotes, #DeepData.Bindables, #DeepData.Tools, #DeepData.BossModels,
+        #DeepData.UnknownRemotes, #DeepData.AnticheatScripts))
 end
 ws.DescendantAdded:Connect(indexObject)
 rep.DescendantAdded:Connect(indexObject)
-local AK = { active = false, installed = false, hooks = {} }
+local AK = { active = false, installed = false, hooks = {}, blocked = 0 }
 function AK:Install()
     if self.installed then return end
     self.installed = true
-    local has_hookmm = type(hookmetamethod) == "function"
-    local has_hookfn = type(hookfunction) == "function"
-    local has_getconn = type(getconnections) == "function"
-    local has_getrmt = type(getrawmetatable) == "function"
-    local has_setro = type(setreadonly) == "function"
-    local has_newccl = type(newcclosure) == "function"
-    print("[🛡️ AK v43] Executor capabilities: hookmm=", has_hookmm, " hookfn=", has_hookfn, " getconn=", has_getconn, " getrmt=", has_getrmt)
-    if has_hookfn then
+    print("[🛡️ AK v50] Installing FE-SAFE Anti-Kick (без изменения HP)...")
+    if hookfunction then
         pcall(function()
             local orig
             orig = hookfunction(lp.Kick, function(...)
-                if AK.active then
-                    print("[🛡️ L1 hookfunction] Kick заблокирован!")
-                    return
-                end
+                if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L1 hookfunction] Kick #" .. AK.blocked .. " заблокирован!") return end
                 return orig(...)
             end)
-            print("[🛡️ L1] hookfunction на Kick УСТАНОВЛЕН")
+            print("[🛡️ L1] hookfunction(lp.Kick) OK")
         end)
     end
-    if has_hookmm then
+    if hookmetamethod then
         pcall(function()
             local old
             old = hookmetamethod(game, "__namecall", function(self, ...)
                 local m = ""
                 if getnamecallmethod then pcall(function() m = getnamecallmethod() end) end
-                if AK.active and (m == "Kick" or m == "kick") then
-                    if typeof(self) == "Instance" and (self == lp or self:IsA("Player")) then
-                        print("[🛡️ L2 __namecall] Kick заблокирован!")
+                if AK.active then
+                    if m == "Kick" or m == "kick" then
+                        if typeof(self) == "Instance" and self:IsA("Player") then
+                            AK.blocked = AK.blocked + 1
+                            warn("[🛡️ L2 __namecall] Kick #" .. AK.blocked .. " заблокирован!")
+                            return
+                        end
+                    end
+                    if m == "Destroy" and typeof(self) == "Instance" and self == lp.Character then
+                        warn("[🛡️ L2] Character:Destroy() заблокирован!")
                         return
                     end
                 end
                 return old(self, ...)
             end)
-            print("[🛡️ L2] hookmetamethod __namecall УСТАНОВЛЕН")
+            print("[🛡️ L2] hookmetamethod __namecall OK")
         end)
     end
-    if has_getrmt and has_setro then
+    if getrawmetatable and setreadonly then
         pcall(function()
             local mt = getrawmetatable(lp)
             setreadonly(mt, false)
             local oldIndex = mt.__index
             local newIndex = function(s, k)
-                if AK.active and k == "Kick" and (s == lp or (typeof(s)=="Instance" and s:IsA("Player"))) then
-                    return function() print("[🛡️ L3 __index] Kick заблокирован!") end
+                if AK.active and k == "Kick" and typeof(s) == "Instance" and s:IsA("Player") then
+                    return function() AK.blocked = AK.blocked + 1; warn("[🛡️ L3 __index] Kick #" .. AK.blocked .. " перехвачен!") end
                 end
                 if type(oldIndex) == "function" then return oldIndex(s, k) end
                 return oldIndex[k]
             end
-            mt.__index = has_newccl and newcclosure(newIndex) or newIndex
+            mt.__index = newcclosure and newcclosure(newIndex) or newIndex
             setreadonly(mt, true)
-            print("[🛡️ L3] metatable __index УСТАНОВЛЕН")
+            print("[🛡️ L3] metatable __index OK")
         end)
     end
     pcall(function()
         local count = 0
-        for _,r in ipairs(rep:GetDescendants()) do
-            if r:IsA("RemoteEvent") then
-                local nm = safeLower(r.Name)
-                local fnm = r.Parent and safeLower(r.Parent.Name) or ""
-                if nm:find("kick") or nm:find("ban") or nm:find("anticheat") or nm:find("punish") or nm:find("detect") or fnm:find("anticheat") then
-                    if has_getconn then
-                        pcall(function()
-                            local conns = getconnections(r.OnClientEvent)
-                            for _, c in ipairs(conns) do pcall(function() c:Disable() end) end
-                            count = count + #conns
-                        end)
+        local function scanFor(cont)
+            for _,r in ipairs(cont:GetDescendants()) do
+                if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then
+                    local nm = safeLower(r.Name)
+                    local fnm = r.Parent and safeLower(r.Parent.Name) or ""
+                    if nm:find("kick") or nm:find("ban") or nm:find("anticheat") or nm:find("punish") or nm:find("report") or nm:find("detect") or nm:find("suspend") or nm:find("moderat") or fnm:find("anticheat") or fnm:find("bansystem") or fnm:find("security") then
+                        if getconnections and r:IsA("RemoteEvent") then
+                            pcall(function()
+                                for _,c in ipairs(getconnections(r.OnClientEvent)) do
+                                    pcall(function() c:Disable() end)
+                                    count = count + 1
+                                end
+                            end)
+                        end
+                        table.insert(AK.hooks, r.OnClientEvent:Connect(function()
+                            if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L4] Blocked ban-remote:", r.Name) end
+                        end))
                     end
-                    table.insert(AK.hooks, r.OnClientEvent:Connect(function()
-                        if AK.active then print("[🛡️ L4] Kick-remote event пойман:", r.Name) end
-                    end))
                 end
             end
         end
-        print("[🛡️ L4] Отключено kick-connections:", count)
+        scanFor(rep); scanFor(ws)
+        print("[🛡️ L4] Kick-remote connections disabled: " .. count)
     end)
-    local function patchChar(c)
-        if not c then return end
-        local h = c:WaitForChild("Humanoid", 5)
-        if h then
-            pcall(function()
-                h.BreakJointsOnDeath = false
-                h.MaxHealth = math.huge
-                h.Health = math.huge
-                local con = h.HealthChanged:Connect(function(nh)
-                    if AK.active and nh < h.MaxHealth * 0.8 then
-                        pcall(function() h.Health = h.MaxHealth end)
-                    end
-                end)
-                table.insert(AK.hooks, con)
-            end)
-        end
-    end
-    patchChar(lp.Character)
-    connections["ak_char"] = lp.CharacterAdded:Connect(patchChar)
-    task.spawn(function()
-        while AK.active or AK.installed do
-            pcall(function()
+    pcall(function()
+        if hookmetamethod then
+            local oldNC
+            oldNC = hookmetamethod(game, "__namecall", function(self, ...)
                 if AK.active then
-                    local c = lp.Character
-                    if c then
-                        local h = c:FindFirstChildOfClass("Humanoid")
-                        if h and h.Health < h.MaxHealth * 0.7 then h.Health = h.MaxHealth end
-                        if not c:FindFirstChildOfClass("ForceField") then
-                            local ff = Instance.new("ForceField")
-                            ff.Visible = false
-                            ff.Parent = c
-                            Deb:AddItem(ff, 4)
+                    local m = getnamecallmethod and getnamecallmethod() or ""
+                    if (m == "FireServer" or m == "InvokeServer") and typeof(self) == "Instance" then
+                        local nm = safeLower(self.Name)
+                        if nm:find("anticheat") or nm:find("ac_") or nm:find("detect") or nm:find("report") or nm:find("flag") then
+                            AK.blocked = AK.blocked + 1
+                            warn("[🛡️ L5] Blocked outgoing anticheat FireServer:", self.Name)
+                            return
                         end
                     end
                 end
+                return oldNC(self, ...)
             end)
-            task.wait(0.5)
+            print("[🛡️ L5] Outgoing anticheat FireServer blocked OK")
         end
     end)
-    print("[🛡️ ANTI-KICK PRO v43] ВСЕ 5 СЛОЁВ УСТАНОВЛЕНЫ!")
+    pcall(function()
+        local StarterGui = game:GetService("StarterGui")
+        table.insert(AK.hooks, StarterGui.Changed:Connect(function()
+            if AK.active then
+                local core = StarterGui:GetCore("PlayerListMouseOverEnabled")
+                if core == nil then
+                    warn("[🛡️ L6] StarterGui reset detected - possible kick attempt")
+                end
+            end
+        end))
+        print("[🛡️ L6] StarterGui monitor OK")
+    end)
+    print("[🛡️ ANTI-KICK v50] FE-SAFE защита установлена — 6 слоёв активны!")
 end
 function AK:Toggle(state)
     self.active = state
     if state and not self.installed then self:Install() end
-    print("[🛡️ AK]", state and "🟢 АКТИВЕН — Kick заблокирован!" or "🔴 OFF")
+    print("[🛡️ AK] " .. (state and "🟢 АКТИВЕН — заблокировано попыток: " .. self.blocked or "🔴 OFF"))
 end
 local function getRoot(obj)
     if not obj then return nil end
@@ -1621,6 +1646,383 @@ local function m_196(o)
     end)
 end
 reg(196, "BossSpecial", "196. 🎯 Humanoid Full Reset", "Все свойства → 0/false", m_196)
+local function m_197(o)
+    claimFE(o)
+    local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
+    if not debounce(197, o, 2) then return end
+    pcall(function()
+        local orig = h.Health
+        h.Health = orig + 1
+        task.wait()
+        h.Health = 0
+        h.MaxHealth = 0
+        h:TakeDamage(math.huge)
+    end)
+end
+reg(197, "MathStats", "197. 🎯 Health Overflow Trick", "HP=orig+1 → 0 (обход клампа)", m_197)
+local function m_198(o)
+    if not debounce(198, o, 3) then return end
+    task.spawn(function()
+        for _, rem in ipairs(DeepData.DamageRemotes) do
+            if rem:IsA("RemoteEvent") then
+                for _, id in ipairs({o, o.Name, getRoot(o), o:FindFirstChildOfClass("Humanoid")}) do
+                    if id then
+                        for i = 1, 3 do
+                            pcall(function() rem:FireServer(id, math.huge) end)
+                            pcall(function() rem:FireServer(id, 1e18) end)
+                        end
+                    end
+                end
+            elseif rem:IsA("RemoteFunction") then
+                task.spawn(function() pcall(function() rem:InvokeServer(o, math.huge) end) end)
+            end
+        end
+    end)
+end
+reg(198, "Events", "198. 🎯 DamageRemote Priority", "Только damage remotes × 3 попытки", m_198)
+local function m_199(o)
+    if not debounce(199, o, 3) then return end
+    task.spawn(function()
+        for _, rem in ipairs(DeepData.BossRemotes) do
+            if rem:IsA("RemoteEvent") then
+                pcall(function()
+                    rem:FireServer(o); rem:FireServer("kill", o); rem:FireServer("defeat", o.Name)
+                    rem:FireServer({action="kill", target=o}); rem:FireServer({event="boss_defeat", id=o.Name})
+                end)
+            end
+        end
+    end)
+end
+reg(199, "BossSpecial", "199. 🎯 BossRemote Focus", "Только boss-specific remotes", m_199)
+local function m_200(o)
+    claimFE(o)
+    local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
+    pcall(function()
+        for _, s in pairs(Enum.HumanoidStateType:GetEnumItems()) do
+            for i = 1, 3 do pcall(function() h:ChangeState(s) end) end
+        end
+        h:ChangeState(Enum.HumanoidStateType.Dead)
+        h.Health = 0
+    end)
+end
+reg(200, "FEClassic", "200. 🎯 State Machine Flood", "Все states × 3 → Dead", m_200)
+local function m_201(o)
+    claimFE(o)
+    if not debounce(201, o, 2) then return end
+    task.spawn(function()
+        local parts = getCached(o).parts
+        for _, p in ipairs(parts) do
+            pcall(function()
+                p.Anchored = false
+                p.CanCollide = false
+                p:SetNetworkOwner(lp)
+                p.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0, 0, 0)
+                p.Massless = true
+            end)
+        end
+        rs.Heartbeat:Wait()
+        for _, p in ipairs(parts) do
+            pcall(function() p.AssemblyLinearVelocity = Vector3.new(0, -1e8, 0) end)
+        end
+    end)
+end
+reg(201, "CustomRigs", "201. 🎯 Physics Property Kill", "PhysProps=0 + velocity -1e8", m_201)
+local function m_202(o)
+    claimFE(o)
+    local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
+    if not debounce(202, o, 3) then return end
+    pcall(function()
+        h.EvaluateStateMachine = false
+        h.UseJumpPower = false
+        h.AutomaticScalingEnabled = false
+        h.WalkSpeed = 0
+        h.JumpPower = 0
+        h.MaxSlopeAngle = 0
+        h.MaxHealth = 0
+        h.Health = 0
+        task.wait(0.1)
+        h:TakeDamage(math.huge)
+        h:ChangeState(Enum.HumanoidStateType.Dead)
+    end)
+end
+reg(202, "FEClassic", "202. 🎯 Humanoid Full Disable", "Evaluate=false + все свойства → 0", m_202)
+local function m_203(o)
+    if not debounce(203, o, 4) then return end
+    task.spawn(function()
+        local c = lp.Character; if not c then return end
+        local tool = c:FindFirstChildOfClass("Tool") or lp.Backpack:FindFirstChildOfClass("Tool")
+        if not tool then return end
+        if tool.Parent ~= c then tool.Parent = c end
+        local r = getRoot(o); if not r then return end
+        local h = tool:FindFirstChild("Handle") or tool:FindFirstChildOfClass("BasePart")
+        if not h then return end
+        local origCF = h.CFrame
+        local origSize = h.Size
+        pcall(function()
+            h.Size = Vector3.new(50, 50, 50)
+            h.Massless = true
+            h.CanCollide = false
+            h.CFrame = r.CFrame
+            tool:Activate()
+            if firetouchinterest then
+                for _, p in ipairs(getCached(o).parts) do
+                    pcall(function() firetouchinterest(h, p, 0); firetouchinterest(h, p, 1) end)
+                end
+            end
+        end)
+        task.wait(0.2)
+        pcall(function() h.Size = origSize; h.CFrame = origCF end)
+    end)
+end
+reg(203, "Weapons", "203. 🎯 Handle Wrap Boss", "Handle 50×50×50 обёртывает NPC", m_203)
+local function m_204(o)
+    claimFE(o)
+    if not debounce(204, o, 2) then return end
+    task.spawn(function()
+        local motors = getCached(o).motors
+        for _, m in ipairs(motors) do
+            pcall(function()
+                m.Enabled = false
+                m.MaxVelocity = 0
+                m.DesiredAngle = 1e18
+                m.CurrentAngle = 1e18
+            end)
+        end
+        rs.Heartbeat:Wait()
+        for _, m in ipairs(motors) do
+            pcall(function()
+                m.C0 = CFrame.new(1e6, 1e6, 1e6)
+                m.C1 = CFrame.new(-1e6, -1e6, -1e6)
+                m.Part0 = nil; m.Part1 = nil
+            end)
+        end
+        if o.BreakJoints then o:BreakJoints() end
+    end)
+end
+reg(204, "CustomRigs", "204. 🎯 Motor6D Nuke", "Enabled=false + CFrame extremes", m_204)
+local function m_205(o)
+    if not debounce(205, o, 3) then return end
+    task.spawn(function()
+        local scripts = DeepData.CombatScripts
+        for _, s in ipairs(scripts) do
+            pcall(function()
+                if s:IsA("LocalScript") then s.Disabled = true; s.Disabled = false end
+                for _, child in ipairs(s:GetDescendants()) do
+                    if child:IsA("BindableEvent") then pcall(function() child:Fire(o, math.huge) end) end
+                end
+            end)
+        end
+    end)
+end
+reg(205, "Events", "205. 🎯 Combat Script Fire", "Fire bindables из combat scripts", m_205)
+local function m_206(o)
+    local c = lp.Character; if not c then return end
+    if not debounce(206, o, 3) then return end
+    task.spawn(function()
+        for _, tool in ipairs(lp.Backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                pcall(function()
+                    tool.Parent = c
+                    task.wait()
+                    tool:Activate()
+                    task.wait()
+                    tool.Parent = lp.Backpack
+                end)
+            end
+        end
+    end)
+end
+reg(206, "Weapons", "206. 🎯 All Tools Activate", "Проходим по всем инструментам", m_206)
+local function m_207(o)
+    claimFE(o)
+    if not debounce(207, o, 3) then return end
+    pcall(function()
+        local root = getRoot(o); if not root then return end
+        for _, p in ipairs(getCached(o).parts) do
+            pcall(function()
+                local vf = Instance.new("VectorForce")
+                local at = Instance.new("Attachment", p)
+                vf.Attachment0 = at
+                vf.Force = Vector3.new(0, -1e10, 0)
+                vf.ApplyAtCenterOfMass = true
+                vf.RelativeTo = Enum.ActuatorRelativeTo.World
+                vf.Parent = p
+                Deb:AddItem(vf, 1)
+                Deb:AddItem(at, 1)
+            end)
+        end
+    end)
+end
+reg(207, "CustomRigs", "207. 🎯 VectorForce -1e10Y", "VectorForce вниз на все части", m_207)
+local function m_208(o)
+    if not debounce(208, o, 4) then return end
+    task.spawn(function()
+        local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
+        for i = 1, 20 do
+            pcall(function()
+                local acc = Instance.new("Accessory")
+                acc.Name = "Spam" .. i
+                local hd = Instance.new("Part")
+                hd.Name = "Handle"
+                hd.Size = Vector3.new(0.1, 0.1, 0.1)
+                hd.Massless = false
+                hd.CustomPhysicalProperties = PhysicalProperties.new(1000, 0, 0, 0, 0)
+                hd.Parent = acc
+                local at = Instance.new("Attachment")
+                at.Name = "HatAttachment"
+                at.Parent = hd
+                acc.Parent = o
+                Deb:AddItem(acc, 3)
+            end)
+        end
+    end)
+end
+reg(208, "CustomRigs", "208. 🎯 Heavy Accessory Spam", "20 Accessory density=1000", m_208)
+local function m_209(o)
+    if not debounce(209, o, 3) then return end
+    task.spawn(function()
+        local unk = DeepData.UnknownRemotes
+        for i = 1, math.min(#unk, 30) do
+            local rem = unk[i]
+            if rem:IsA("RemoteEvent") then
+                pcall(function()
+                    rem:FireServer(o); rem:FireServer(o, math.huge); rem:FireServer("kill", o)
+                end)
+            end
+        end
+    end)
+end
+reg(209, "Events", "209. 🎯 Unknown Remote Prob", "Zonalscan неизвестных remotes", m_209)
+local function m_210(o)
+    claimFE(o)
+    if not debounce(210, o, 3) then return end
+    task.spawn(function()
+        local r = getRoot(o); if not r then return end
+        local air = Instance.new("Attachment", r)
+        air.Position = Vector3.zero
+        local ao = Instance.new("AlignOrientation")
+        ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        ao.Attachment0 = air
+        ao.CFrame = CFrame.Angles(math.rad(90), 0, 0)
+        ao.MaxTorque = math.huge
+        ao.MaxAngularVelocity = math.huge
+        ao.Responsiveness = 200
+        ao.Parent = r
+        Deb:AddItem(ao, 3); Deb:AddItem(air, 3)
+        local h = o:FindFirstChildOfClass("Humanoid")
+        if h then h:ChangeState(Enum.HumanoidStateType.Physics); h.Health = 0 end
+    end)
+end
+reg(210, "CustomRigs", "210. 🎯 AlignOrient Spinlock", "AlignOrientation + Physics state", m_210)
+local function m_211(o)
+    if not debounce(211, o, 2) then return end
+    pcall(function()
+        for _, a in ipairs({"Health","HP","CurrentHealth","MaxHealth","MaxHP","Life","LifePoints","hp","health","currenthp","maxhp"}) do
+            pcall(function() o:SetAttribute(a, 0) end)
+            local r = getRoot(o); if r then pcall(function() r:SetAttribute(a, 0) end) end
+            for _, v in ipairs(o:GetDescendants()) do
+                if v:IsA("Model") or v:IsA("Configuration") or v:IsA("Folder") then
+                    pcall(function() v:SetAttribute(a, 0) end)
+                end
+            end
+        end
+    end)
+end
+reg(211, "MathStats", "211. 🎯 Attribute Scattergun", "12 HP attribute-имён по всей иерархии", m_211)
+local function m_212(o)
+    if not debounce(212, o, 4) then return end
+    task.spawn(function()
+        local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
+        local origMH = h.MaxHealth
+        for i = 1, 10 do
+            pcall(function()
+                h.MaxHealth = origMH * math.random(1, 100)
+                task.wait()
+                h.Health = 0
+                h.MaxHealth = 0
+                h:TakeDamage(math.huge)
+            end)
+        end
+    end)
+end
+reg(212, "MathStats", "212. 🎯 MaxHealth Chaos", "Волны MaxHealth рандом → 0", m_212)
+local function m_213(o)
+    if not debounce(213, o, 3) then return end
+    local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
+    pcall(function()
+        h.RequiresNeck = true
+        local head = o:FindFirstChild("Head")
+        local torso = o:FindFirstChild("Torso") or o:FindFirstChild("UpperTorso")
+        if head then
+            for _, j in ipairs(head:GetJoints()) do pcall(function() j:Destroy() end) end
+            local neck = head:FindFirstChild("Neck")
+            if neck then neck:Destroy() end
+        end
+        if torso then
+            local neck = torso:FindFirstChild("Neck")
+            if neck then neck:Destroy() end
+        end
+        task.wait()
+        h:TakeDamage(math.huge)
+        h:ChangeState(Enum.HumanoidStateType.Dead)
+    end)
+end
+reg(213, "BossSpecial", "213. 🎯 Neck Precise Break", "Точный разрыв Neck из Torso", m_213)
+local function m_214(o)
+    if not debounce(214, o, 5) then return end
+    local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
+    task.spawn(function()
+        for _, tool in ipairs(o:GetChildren()) do
+            if tool:IsA("Tool") then
+                pcall(function() tool.Parent = nil end)
+            end
+        end
+        h:UnequipTools()
+        task.wait()
+        h.Health = 0
+    end)
+end
+reg(214, "BossSpecial", "214. 🎯 Weapon Strip Boss", "Убрать всё оружие + HP=0", m_214)
+local function m_215(o)
+    if not debounce(215, o, 3) then return end
+    task.spawn(function()
+        for _, bnd in ipairs(DeepData.Bindables) do
+            pcall(function()
+                if bnd:IsA("BindableEvent") then
+                    bnd:Fire(o); bnd:Fire(o, math.huge); bnd:Fire(lp, o); bnd:Fire({victim=o})
+                elseif bnd:IsA("BindableFunction") then
+                    task.spawn(function() bnd:Invoke(o) end)
+                end
+            end)
+        end
+    end)
+end
+reg(215, "Events", "215. 🎯 Bindable Onslaught", "Все bindables × разные args", m_215)
+local function m_216(o)
+    if not debounce(216, o, 5) then return end
+    local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
+    task.spawn(function()
+        pcall(function()
+            local origBH = h.BreakJointsOnDeath
+            h.BreakJointsOnDeath = true
+            h.RequiresNeck = true
+            local orig = h.MaxHealth
+            h.MaxHealth = 1e18
+            task.wait()
+            h.Health = h.MaxHealth
+            task.wait()
+            h.MaxHealth = 0
+            h.Health = 0
+            task.wait()
+            h.MaxHealth = orig
+            h.Health = 0
+            h:TakeDamage(math.huge)
+            h:ChangeState(Enum.HumanoidStateType.Dead)
+            if o.BreakJoints then o:BreakJoints() end
+        end)
+    end)
+end
+reg(216, "BossSpecial", "216. 🎯 HP Roller Coaster", "MaxHealth 1e18→0 + Dead + Break", m_216)
 antiRollback = function(o)
     local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
     if rollbackGuards[o] then rollbackGuards[o]:Disconnect() end
