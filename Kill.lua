@@ -1,4 +1,4 @@
-warn("[v47] === СКРИПТ ЗАПУЩЕН ===")
+warn("[v48] === СКРИПТ ЗАПУЩЕН ===")
 if _G.NPCKillTesterPro and _G.NPCKillTesterPro.Unload then
     _G.NPCKillTesterPro.Unload()
     task.wait(0.3)
