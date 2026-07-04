@@ -383,6 +383,8 @@ local function claimFE(obj)
         end
     end)
 end
+local function _loadMethods()
+warn("[v48] Loading methods...")
 local function m_1(o) claimFE(o); local h=o:FindFirstChildOfClass("Humanoid"); if h then pcall(function() h.Health=0; h:TakeDamage(999999) end) end end
 reg(1, "FEClassic", "1. Simple HP=0", "Humanoid.Health=0", m_1)
 local function m_2(o) claimFE(o); local h=o:FindFirstChildOfClass("Humanoid"); if h then pcall(function() h:ChangeState(Enum.HumanoidStateType.Dead); h.PlatformStand=true end) end end
@@ -544,6 +546,8 @@ local function m_106(o)
     end)
 end
 reg(106, "Events", "106. Boss-ID Router", "Все ID → все combat remotes", m_106)
+end _loadMethods() local function _loadMethods2()
+warn("[v48] Loading methods part 2...")
 local function m_139(o)
     if #DeepData.CombatRemotes == 0 then runAnalysis() end
     if not debounce(139, o, 2) then return end
@@ -701,6 +705,8 @@ end
 reg(19, "Weapons", "19. Weapon Remote Hijack", "Все Tool remotes → FireServer", m_19)
 local function m_25(o) for _,v in ipairs(getCached(o).parts) do local nm=safeLower(v.Name); if nm:find("hitbox") or nm:find("weapon") then pcall(function() v:Destroy() end) end end end
 reg(25, "Weapons", "25. Disarm Hitbox", "Destroy hitbox/weapon parts", m_25)
+end _loadMethods2() local function _loadMethods3()
+warn("[v48] Loading methods part 3...")
 local function m_89(o) claimFE(o); for _,v in ipairs(getCached(o).welds) do if v.Part1 and safeLower(v.Part1.Name):find("weapon") then pcall(function() v.Part0=nil; v.Part1=nil end) end end end
 reg(89, "Weapons", "89. Weld Detach Weapon", "Отрыв weapon welds", m_89)
 local function m_37(o)
@@ -1074,6 +1080,8 @@ local function m_118(o) claimFE(o); local h=o:FindFirstChildOfClass("Humanoid");
 reg(118, "MathStats", "118. Health Clamp x10", "MaxHealth=0 loop", m_118)
 local function m_120(o) pcall(function() for _,p in ipairs(getCached(o).parts) do pcall(function() p.BrickColor=BrickColor.new("Medium stone grey") end) end; for _,a in ipairs({"Team","TeamColor","Faction","Enemy"}) do pcall(function() o:SetAttribute(a,"Neutral") end) end; local h=o:FindFirstChildOfClass("Humanoid"); if h then pcall(function() h:TakeDamage(math.huge); h.Health=0 end) end end) end
 reg(120, "MathStats", "120. Neutral Team", "Team → Neutral", m_120)
+end _loadMethods3() local function _loadMethods4()
+warn("[v48] Loading methods part 4...")
 local function m_122(o) claimFE(o); local h=o:FindFirstChildOfClass("Humanoid"); if not h then return end; if not debounce(122, o, 2) then return end; task.spawn(function() for wave=1,2 do if not o.Parent then break end; for i=1,30 do pcall(function() h:TakeDamage(1e9) end) end; pcall(function() h.Health=0 end); task.wait(0.08) end end) end
 reg(122, "MathStats", "122. Massive TakeDamage", "30×TakeDamage(1e9) x2", m_122)
 local function m_136(o) pcall(function() for _,v in ipairs(o:GetDescendants()) do pcall(function() if v:IsA("NumberValue") or v:IsA("IntValue") then v.Value=0 elseif v:IsA("BoolValue") then v.Value=false end end) end; for a,vl in pairs(o:GetAttributes()) do pcall(function() if type(vl)=="number" then o:SetAttribute(a,0) elseif type(vl)=="boolean" then o:SetAttribute(a,false) end end) end end) end
@@ -1646,9 +1654,10 @@ local function NUCLEAR(o)
         end
     end)
 end
-warn("[v47] GUI START")
+end _loadMethods4()
+warn("[v48] All methods loaded. GUI START")
 local sg, mf, unloadBtn, refreshNPCs
-do
+local function _buildGUI()
 local function newInst(class, props, parent)
     local o = Instance.new(class)
     if props then for k,v in pairs(props) do pcall(function() o[k] = v end) end end
@@ -2294,7 +2303,8 @@ task.spawn(function() while true do pcall(refreshNPCs); task.wait(6) end end)
 pcall(refreshNPCs)
 runAnalysis()
 end
-warn("[v47] GUI FINISHED — все локалки освобождены")
+_buildGUI()
+warn("[v48] GUI FINISHED — все локалки освобождены")
 local function unloadAll()
     AK.active = false; AK.installed = false
     for _, c in pairs(connections) do pcall(function() if c and c.Disconnect then c:Disconnect() end end) end
