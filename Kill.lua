@@ -1,4 +1,4 @@
-warn("[v50] === СКРИПТ ЗАПУЩЕН — 140 методов, FE-Anti-Kick, умный анализатор ===")
+warn("[v51] === СКРИПТ ЗАПУЩЕН — FE-FIX + опасные методы OFF по умолчанию ===")
 if _G.NPCKillTesterPro and _G.NPCKillTesterPro.Unload then
     _G.NPCKillTesterPro.Unload()
     task.wait(0.3)
@@ -223,30 +223,7 @@ function AK:Install()
             print("[🛡️ L1] hookfunction(lp.Kick) OK")
         end)
     end
-    if hookmetamethod then
-        pcall(function()
-            local old
-            old = hookmetamethod(game, "__namecall", function(self, ...)
-                local m = ""
-                if getnamecallmethod then pcall(function() m = getnamecallmethod() end) end
-                if AK.active then
-                    if m == "Kick" or m == "kick" then
-                        if typeof(self) == "Instance" and self:IsA("Player") then
-                            AK.blocked = AK.blocked + 1
-                            warn("[🛡️ L2 __namecall] Kick #" .. AK.blocked .. " заблокирован!")
-                            return
-                        end
-                    end
-                    if m == "Destroy" and typeof(self) == "Instance" and self == lp.Character then
-                        warn("[🛡️ L2] Character:Destroy() заблокирован!")
-                        return
-                    end
-                end
-                return old(self, ...)
-            end)
-            print("[🛡️ L2] hookmetamethod __namecall OK")
-        end)
-    end
+    print("[🛡️ L2] __namecall hook УДАЛЁН — он ломал FE! Используем только L1/L3/L4")
     if getrawmetatable and setreadonly then
         pcall(function()
             local mt = getrawmetatable(lp)
@@ -290,26 +267,7 @@ function AK:Install()
         scanFor(rep); scanFor(ws)
         print("[🛡️ L4] Kick-remote connections disabled: " .. count)
     end)
-    pcall(function()
-        if hookmetamethod then
-            local oldNC
-            oldNC = hookmetamethod(game, "__namecall", function(self, ...)
-                if AK.active then
-                    local m = getnamecallmethod and getnamecallmethod() or ""
-                    if (m == "FireServer" or m == "InvokeServer") and typeof(self) == "Instance" then
-                        local nm = safeLower(self.Name)
-                        if nm:find("anticheat") or nm:find("ac_") or nm:find("detect") or nm:find("report") or nm:find("flag") then
-                            AK.blocked = AK.blocked + 1
-                            warn("[🛡️ L5] Blocked outgoing anticheat FireServer:", self.Name)
-                            return
-                        end
-                    end
-                end
-                return oldNC(self, ...)
-            end)
-            print("[🛡️ L5] Outgoing anticheat FireServer blocked OK")
-        end
-    end)
+
     pcall(function()
         local StarterGui = game:GetService("StarterGui")
         table.insert(AK.hooks, StarterGui.Changed:Connect(function()
@@ -1726,7 +1684,7 @@ local function m_201(o)
         end
     end)
 end
-reg(201, "CustomRigs", "201. 🎯 Physics Property Kill", "PhysProps=0 + velocity -1e8", m_201)
+reg(201, "CustomRigs", "201. ⚠️ Physics Property Kill", "PhysProps=0 + velocity -1e8 (может ломать FE!)", m_201, false)
 local function m_202(o)
     claimFE(o)
     local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
@@ -1745,7 +1703,7 @@ local function m_202(o)
         h:ChangeState(Enum.HumanoidStateType.Dead)
     end)
 end
-reg(202, "FEClassic", "202. 🎯 Humanoid Full Disable", "Evaluate=false + все свойства → 0", m_202)
+reg(202, "FEClassic", "202. ⚠️ Humanoid Full Disable", "Evaluate=false (требует ownership!)", m_202, false)
 local function m_203(o)
     if not debounce(203, o, 4) then return end
     task.spawn(function()
@@ -1853,7 +1811,7 @@ local function m_207(o)
         end
     end)
 end
-reg(207, "CustomRigs", "207. 🎯 VectorForce -1e10Y", "VectorForce вниз на все части", m_207)
+reg(207, "CustomRigs", "207. ⚠️ VectorForce -1e10Y", "VectorForce (может ломать FE!)", m_207, false)
 local function m_208(o)
     if not debounce(208, o, 4) then return end
     task.spawn(function()
@@ -1877,7 +1835,7 @@ local function m_208(o)
         end
     end)
 end
-reg(208, "CustomRigs", "208. 🎯 Heavy Accessory Spam", "20 Accessory density=1000", m_208)
+reg(208, "CustomRigs", "208. ⚠️ Heavy Accessory Spam", "20 Accessory (может ломать FE!)", m_208, false)
 local function m_209(o)
     if not debounce(209, o, 3) then return end
     task.spawn(function()
@@ -1913,7 +1871,7 @@ local function m_210(o)
         if h then h:ChangeState(Enum.HumanoidStateType.Physics); h.Health = 0 end
     end)
 end
-reg(210, "CustomRigs", "210. 🎯 AlignOrient Spinlock", "AlignOrientation + Physics state", m_210)
+reg(210, "CustomRigs", "210. ⚠️ AlignOrient Spinlock", "AlignOrientation (может ломать FE!)", m_210, false)
 local function m_211(o)
     if not debounce(211, o, 2) then return end
     pcall(function()
@@ -2022,7 +1980,7 @@ local function m_216(o)
         end)
     end)
 end
-reg(216, "BossSpecial", "216. 🎯 HP Roller Coaster", "MaxHealth 1e18→0 + Dead + Break", m_216)
+reg(216, "BossSpecial", "216. ⚠️ HP Roller Coaster", "MaxHealth манипуляция (может ломать FE!)", m_216, false)
 antiRollback = function(o)
     local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
     if rollbackGuards[o] then rollbackGuards[o]:Disconnect() end
