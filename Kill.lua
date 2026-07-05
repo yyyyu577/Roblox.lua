@@ -1,4 +1,4 @@
-warn("[v55] === СКРИПТ ЗАПУЩЕН — 210 методов | 30-слой AntiKick | Memory-Scanner | Backdoor Exploit Panel ===")
+warn("[v56] === СКРИПТ ЗАПУЩЕН — 210 методов | 36-слой AntiKick | Optimized Scanner | Classified Backdoors ===")
 if _G.NPCKillTesterPro and _G.NPCKillTesterPro.Unload then
     _G.NPCKillTesterPro.Unload()
     task.wait(0.3)
@@ -254,45 +254,56 @@ local function analyzeAnticheat()
         end)
     end
 end
+local ScanState = { running = false, lastFullScan = 0 }
 local function scanGarbageCollector()
     if not getgc then return end
-    pcall(function()
-        DeepData.GCRemotesFound = {}
-        DeepData.GCTablesFound = {}
-        DeepData.GCFunctionsFound = {}
-        local seen = {}
-        for _, obj in ipairs(getgc(true)) do
-            if type(obj) == "table" and not seen[obj] then
-                seen[obj] = true
-                pcall(function()
-                    for k, v in pairs(obj) do
-                        if typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
-                            safeInsert(DeepData.GCRemotesFound, v)
-                            if not table.find(DeepData.CombatRemotes, v) then
-                                local kn = safeLower(tostring(k))
-                                if matchAny(kn, COMBAT_KW) or matchAny(kn, DAMAGE_KW) then
-                                    safeInsert(DeepData.CombatRemotes, v)
+    if ScanState.running then warn("[SCAN] already running, skip"); return end
+    ScanState.running = true
+    task.spawn(function()
+        pcall(function()
+            DeepData.GCRemotesFound = {}
+            DeepData.GCTablesFound = {}
+            DeepData.GCFunctionsFound = {}
+            local seen = {}
+            local count = 0
+            local BATCH = 200
+            local gc = getgc(true)
+            local totalObjects = #gc
+            for i, obj in ipairs(gc) do
+                if type(obj) == "table" and not seen[obj] then
+                    seen[obj] = true
+                    pcall(function()
+                        for k, v in pairs(obj) do
+                            if typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
+                                safeInsert(DeepData.GCRemotesFound, v)
+                                if not table.find(DeepData.CombatRemotes, v) then
+                                    local kn = safeLower(tostring(k))
+                                    if matchAny(kn, COMBAT_KW) or matchAny(kn, DAMAGE_KW) then
+                                        safeInsert(DeepData.CombatRemotes, v)
+                                    end
                                 end
                             end
                         end
-                    end
-                    local mt = getmetatable and getmetatable(obj)
-                    if type(mt) == "table" then safeInsert(DeepData.GCTablesFound, obj) end
-                end)
-            elseif type(obj) == "function" then
-                pcall(function()
-                    if debug and debug.getinfo then
-                        local info = debug.getinfo(obj, "S")
-                        if info and info.source then
-                            local src = safeLower(info.source)
-                            if src:find("combat") or src:find("damage") or src:find("weapon") then
-                                safeInsert(DeepData.GCFunctionsFound, obj)
+                    end)
+                elseif type(obj) == "function" then
+                    pcall(function()
+                        if debug and debug.getinfo then
+                            local info = debug.getinfo(obj, "S")
+                            if info and info.source then
+                                local src = safeLower(info.source)
+                                if src:find("combat") or src:find("damage") or src:find("weapon") then
+                                    safeInsert(DeepData.GCFunctionsFound, obj)
+                                end
                             end
                         end
-                    end
-                end)
+                    end)
+                end
+                count = count + 1
+                if count % BATCH == 0 then task.wait() end
+                if count > 50000 then break end
             end
-        end
+        end)
+        ScanState.running = false
     end)
 end
 local function scanUpvalues()
@@ -445,47 +456,53 @@ local function scanMemoryDeep()
     DeepData.MemoryStats = { tables = 0, functions = 0, strings = 0, ratios = {} }
     DeepData.CriticalTables = {}
     DeepData.RemoteMap = {}
-    pcall(function()
-        local counts = { table = 0, ["function"] = 0, string = 0, thread = 0, userdata = 0 }
-        local remoteRefs = {}
-        for _, obj in ipairs(getgc(true)) do
-            local t = type(obj)
-            counts[t] = (counts[t] or 0) + 1
-            if t == "table" then
-                pcall(function()
-                    local isRemoteMap = false
-                    local remoteCount = 0
-                    for k, v in pairs(obj) do
-                        if typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
-                            remoteCount = remoteCount + 1
-                            if not remoteRefs[v] then remoteRefs[v] = {} end
-                            table.insert(remoteRefs[v], { key = tostring(k), table = obj })
-                            if remoteCount >= 2 then isRemoteMap = true end
-                        end
-                    end
-                    if isRemoteMap then
-                        table.insert(DeepData.RemoteMap, { table = obj, count = remoteCount })
-                    end
-                    local suspKeys = 0
-                    for k, v in pairs(obj) do
-                        if type(k) == "string" then
-                            local lk = safeLower(k)
-                            if lk:find("kill") or lk:find("damage") or lk:find("execute") or lk:find("admin") or lk:find("boss") then
-                                suspKeys = suspKeys + 1
+    task.spawn(function()
+        pcall(function()
+            local counts = { table = 0, ["function"] = 0, string = 0, thread = 0, userdata = 0 }
+            local remoteRefs = {}
+            local BATCH = 150
+            local processed = 0
+            local gc = getgc(true)
+            for i, obj in ipairs(gc) do
+                local t = type(obj)
+                counts[t] = (counts[t] or 0) + 1
+                if t == "table" then
+                    pcall(function()
+                        local isRemoteMap = false
+                        local remoteCount = 0
+                        local suspKeys = 0
+                        for k, v in pairs(obj) do
+                            if typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
+                                remoteCount = remoteCount + 1
+                                if not remoteRefs[v] then remoteRefs[v] = {} end
+                                table.insert(remoteRefs[v], { key = tostring(k), table = obj })
+                                if remoteCount >= 2 then isRemoteMap = true end
+                            end
+                            if type(k) == "string" then
+                                local lk = safeLower(k)
+                                if lk:find("kill") or lk:find("damage") or lk:find("execute") or lk:find("admin") or lk:find("boss") then
+                                    suspKeys = suspKeys + 1
+                                end
                             end
                         end
-                    end
-                    if suspKeys >= 3 then
-                        table.insert(DeepData.CriticalTables, { table = obj, suspKeys = suspKeys })
-                    end
-                end)
+                        if isRemoteMap then
+                            table.insert(DeepData.RemoteMap, { table = obj, count = remoteCount })
+                        end
+                        if suspKeys >= 3 then
+                            table.insert(DeepData.CriticalTables, { table = obj, suspKeys = suspKeys })
+                        end
+                    end)
+                end
+                processed = processed + 1
+                if processed % BATCH == 0 then task.wait() end
+                if processed > 30000 then break end
             end
-        end
-        DeepData.MemoryStats.tables = counts.table or 0
-        DeepData.MemoryStats.functions = counts["function"] or 0
-        DeepData.MemoryStats.strings = counts.string or 0
-        DeepData.MemoryStats.threads = counts.thread or 0
-        DeepData.RemoteReferences = remoteRefs
+            DeepData.MemoryStats.tables = counts.table or 0
+            DeepData.MemoryStats.functions = counts["function"] or 0
+            DeepData.MemoryStats.strings = counts.string or 0
+            DeepData.MemoryStats.threads = counts.thread or 0
+            DeepData.RemoteReferences = remoteRefs
+        end)
     end)
 end
 local function scanRegistry()
@@ -512,55 +529,99 @@ local function scanRegistry()
         end
     end)
 end
+local function classifyBackdoor(rem)
+    local nm = safeLower(rem.Name)
+    local fnm = rem.Parent and safeLower(rem.Parent.Name) or ""
+    local effect = "UNKNOWN"
+    local effectIcon = "❓"
+    local suggestedArgs = { {rem, math.huge}, {lp.Name} }
+    local risk = "MEDIUM"
+    if nm:find("kickall") or nm:find("killall") or nm:find("wipeall") then
+        effect = "KILL ALL PLAYERS"; effectIcon = "💀"; risk = "CRITICAL"
+        suggestedArgs = { {}, {"kill","all"}, {"all"} }
+    elseif nm:find("killother") or nm:find("killplayer") or nm:find("dmgplayer") then
+        effect = "KILL OTHER PLAYERS"; effectIcon = "⚔️"; risk = "CRITICAL"
+        suggestedArgs = {}
+        for _, p in ipairs(plrs:GetPlayers()) do
+            if p ~= lp then table.insert(suggestedArgs, {p, math.huge}); if #suggestedArgs>=3 then break end end
+        end
+    elseif nm:find("money") or nm:find("cash") or nm:find("coin") or nm:find("gold") or nm:find("gem") or nm:find("credit") or nm:find("currency") or nm:find("give") or nm:find("reward") then
+        effect = "GET MONEY/RESOURCE"; effectIcon = "💰"; risk = "HIGH"
+        suggestedArgs = { {lp,math.huge}, {math.huge}, {lp.Name,999999999}, {"give",lp.Name,"money",math.huge} }
+    elseif nm:find("god") or nm:find("invulnerable") or nm:find("immortal") or nm:find("immune") then
+        effect = "GOD MODE"; effectIcon = "🛡️"; risk = "HIGH"
+        suggestedArgs = { {lp,true}, {true}, {lp.Name,true} }
+    elseif nm:find("teleport") or nm:find("tp ") or nm:find("bring") or nm:find("goto") then
+        effect = "TELEPORT"; effectIcon = "📍"; risk = "MEDIUM"
+        suggestedArgs = { {lp,Vector3.new(0,50,0)} }
+    elseif nm:find("admin") or nm:find("moderator") or nm:find("staff") then
+        effect = "ADMIN ACCESS"; effectIcon = "👑"; risk = "CRITICAL"
+        suggestedArgs = { {lp}, {lp.Name}, {"admin",lp.Name} }
+    elseif nm:find("delete") or nm:find("destroy") or nm:find("wipe") or nm:find("clearall") then
+        if nm:find("map") or nm:find("world") or nm:find("workspace") then
+            effect = "DELETE MAP"; effectIcon = "🗺️"; risk = "CRITICAL"
+        else
+            effect = "DELETE OBJECTS"; effectIcon = "🗑️"; risk = "HIGH"
+        end
+        suggestedArgs = { {}, {"all"}, {ws} }
+    elseif nm:find("execute") or nm:find("runcode") or nm:find("dostring") or nm:find("loadcode") or nm:find("loadstring") then
+        effect = "REMOTE CODE EXEC"; effectIcon = "🚨"; risk = "CRITICAL"
+        suggestedArgs = { {"print('exploited by " .. lp.Name .. "')"}, {"game.Workspace:ClearAllChildren()"} }
+    elseif nm:find("chat") or nm:find("message") or nm:find("say") then
+        effect = "CHAT/MESSAGE"; effectIcon = "💬"; risk = "LOW"
+        suggestedArgs = { {"HACKED"}, {"/e kick "..lp.Name} }
+    elseif nm:find("spawn") or nm:find("summon") then
+        effect = "SPAWN ITEM/BOSS"; effectIcon = "✨"; risk = "MEDIUM"
+        suggestedArgs = { {lp}, {"Sword"}, {"boss"} }
+    elseif nm:find("heal") or nm:find("restore") or nm:find("revive") then
+        effect = "HEAL/REVIVE"; effectIcon = "💚"; risk = "LOW"
+        suggestedArgs = { {lp}, {lp,math.huge} }
+    elseif nm:find("kick") or nm:find("ban") then
+        effect = "KICK/BAN"; effectIcon = "🚫"; risk = "HIGH"
+        suggestedArgs = {}
+        for _, p in ipairs(plrs:GetPlayers()) do
+            if p ~= lp then table.insert(suggestedArgs, {p}); table.insert(suggestedArgs, {p.Name}); break end
+        end
+    elseif nm:find("speed") or nm:find("walkspeed") or nm:find("velocity") then
+        effect = "SPEED"; effectIcon = "💨"; risk = "LOW"
+        suggestedArgs = { {lp,999}, {999} }
+    elseif nm:find("noclip") or nm:find("phase") or nm:find("collide") then
+        effect = "NOCLIP"; effectIcon = "👻"; risk = "LOW"
+        suggestedArgs = { {lp,false}, {false} }
+    elseif nm:find("boss") or nm:find("raid") then
+        effect = "BOSS INTERACT"; effectIcon = "👹"; risk = "HIGH"
+        suggestedArgs = { {math.huge}, {"kill"} }
+    elseif nm:find("damage") or nm:find("dmg") or nm:find("hurt") then
+        effect = "DAMAGE ENTITY"; effectIcon = "⚔️"; risk = "MEDIUM"
+        suggestedArgs = { {math.huge} }
+    end
+    return {
+        remote = rem,
+        path = rem:GetFullName(),
+        class = rem.ClassName,
+        risk = risk,
+        effect = effect,
+        effectIcon = effectIcon,
+        suggestedArgs = suggestedArgs,
+        source = "AutoClass",
+    }
+end
 local function findExploitableBackdoors()
     DeepData.ExploitableBackdoors = {}
+    local seen = {}
+    local function addUnique(entry)
+        if entry.remote and seen[entry.remote] then return end
+        if entry.remote then seen[entry.remote] = true end
+        table.insert(DeepData.ExploitableBackdoors, entry)
+    end
     for _, r in ipairs(DeepData.SuspiciousRemotes or {}) do
-        pcall(function()
-            local nm = safeLower(r.Name)
-            local risk = "MEDIUM"
-            local suggestedArgs = {}
-            if nm:find("execute") or nm:find("runcode") or nm:find("dostring") or nm:find("loadcode") then
-                risk = "CRITICAL"
-                suggestedArgs = { "print('exploited')", "game.Players.LocalPlayer:Kick('test')" }
-            elseif nm:find("admin") or nm:find("cmd") or nm:find("command") then
-                risk = "HIGH"
-                suggestedArgs = { ":kill all", "kick " .. lp.Name, ":admin " .. lp.Name }
-            elseif nm:find("chat") or nm:find("message") then
-                risk = "MEDIUM"
-                suggestedArgs = { "test", "/e kick" }
-            end
-            table.insert(DeepData.ExploitableBackdoors, {
-                remote = r,
-                path = r:GetFullName(),
-                class = r.ClassName,
-                risk = risk,
-                suggestedArgs = suggestedArgs,
-            })
-        end)
+        pcall(function() addUnique(classifyBackdoor(r)) end)
     end
     for _, r in ipairs(DeepData.AdminRemotes or {}) do
-        pcall(function()
-            if not table.find(DeepData.ExploitableBackdoors, r) then
-                table.insert(DeepData.ExploitableBackdoors, {
-                    remote = r,
-                    path = r:GetFullName(),
-                    class = r.ClassName,
-                    risk = "HIGH",
-                    suggestedArgs = { ":kill boss", "give " .. lp.Name .. " admin", "spawn boss dead" },
-                })
-            end
-        end)
+        pcall(function() addUnique(classifyBackdoor(r)) end)
     end
     for _, r in ipairs(DeepData.InstantKillRemotes or {}) do
-        pcall(function()
-            table.insert(DeepData.ExploitableBackdoors, {
-                remote = r,
-                path = r:GetFullName(),
-                class = r.ClassName,
-                risk = "CRITICAL",
-                suggestedArgs = { "any_boss_here", "1", "kill" },
-            })
-        end)
+        pcall(function() addUnique(classifyBackdoor(r)) end)
     end
 end
 local function scanHiddenCharacters()
@@ -644,7 +705,14 @@ local function reportVulnerabilities()
     end
     warn("╚══════════════════════════════════════════════════════════╝")
 end
-local function runAnalysis()
+local LastFullAnalysis = 0
+local function runAnalysis(force)
+    local now = tick()
+    if not force and (now - LastFullAnalysis) < 20 then
+        warn("[ANALYZER] Skip — прошло меньше 20 сек с последнего скана")
+        return
+    end
+    LastFullAnalysis = now
     DeepData.CombatRemotes = {}
     DeepData.DamageRemotes = {}
     DeepData.WeaponRemotes = {}
@@ -1196,7 +1264,123 @@ function AK:Install()
             end
         end
     end)
-    print("[🛡️ ANTI-KICK v55] ABSOLUTE защита установлена — " .. AK.layers .. " слоёв активны!")
+    pcall(function()
+        connections["ak_scriptcontext"] = task.spawn(function()
+            while AK.installed do
+                if AK.active then
+                    pcall(function()
+                        local sc = game:GetService("ScriptContext")
+                        if sc and sc.Error then
+                        end
+                    end)
+                end
+                task.wait(2)
+            end
+        end)
+        local sc = game:GetService("ScriptContext")
+        connections["ak_script_error"] = sc.Error:Connect(function(msg, trace, script)
+            if AK.active and msg then
+                local lm = tostring(msg):lower()
+                if lm:find("kick") or lm:find("ban") or lm:find("disconnect") then
+                    warn("[🛡️ L31] Script error caught: " .. msg:sub(1,80))
+                    AK.blocked = AK.blocked + 1
+                end
+            end
+        end)
+        AK.layers = AK.layers + 1; print("[🛡️ L31] ScriptContext.Error watcher OK")
+    end)
+    pcall(function()
+        if hookfunction then
+            local MessagingSvc = game:GetService("MessagingService")
+            if MessagingSvc then
+                local origPub = MessagingSvc.PublishAsync
+                if origPub then
+                    hookfunction(origPub, function(self, topic, ...)
+                        if AK.active and type(topic) == "string" then
+                            local lt = topic:lower()
+                            if lt:find("kick") or lt:find("ban") or lt:find("report") then
+                                AK.blocked = AK.blocked + 1
+                                warn("[🛡️ L32] MessagingService kick-topic blocked: " .. topic)
+                                return
+                            end
+                        end
+                        return origPub(self, topic, ...)
+                    end)
+                    AK.layers = AK.layers + 1; print("[🛡️ L32] MessagingService hook OK")
+                end
+            end
+        end
+    end)
+    pcall(function()
+        if hookfunction then
+            local DSS = game:GetService("DataStoreService")
+            if DSS and DSS.GetDataStore then
+                local origGDS = DSS.GetDataStore
+                hookfunction(origGDS, function(self, name, ...)
+                    if AK.active and type(name) == "string" then
+                        local ln = name:lower()
+                        if ln:find("ban") or ln:find("kick") or ln:find("punish") then
+                            warn("[🛡️ L33] DataStore ban-store access detected: " .. name)
+                            AK.blocked = AK.blocked + 1
+                        end
+                    end
+                    return origGDS(self, name, ...)
+                end)
+                AK.layers = AK.layers + 1; print("[🛡️ L33] DataStore ban-store detector OK")
+            end
+        end
+    end)
+    pcall(function()
+        local RunSvc = game:GetService("RunService")
+        local origStepped = RunSvc.Stepped
+        connections["ak_stepped_guard"] = RunSvc.Stepped:Connect(function(t, dt)
+            if AK.active and dt > 1.0 then
+                warn("[🛡️ L34] SERVER LAG SPIKE " .. math.floor(dt*10)/10 .. "s (possible sneak-kick)")
+            end
+        end)
+        AK.layers = AK.layers + 1; print("[🛡️ L34] Server-lag spike detector OK")
+    end)
+    pcall(function()
+        if getconnections and lp.CharacterAdded then
+            for _, c in ipairs(getconnections(lp.CharacterAdded)) do
+                pcall(function()
+                    if c.Function then
+                        local ok, info = pcall(debug.getinfo, c.Function, "S")
+                        if ok and info and info.source then
+                            local src = tostring(info.source):lower()
+                            if src:find("kick") or src:find("ban") or src:find("anticheat") then
+                                pcall(function() c:Disable() end)
+                                warn("[🛡️ L35] CharacterAdded ban-handler disabled: " .. info.source:sub(1,40))
+                                AK.blocked = AK.blocked + 1
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+        AK.layers = AK.layers + 1; print("[🛡️ L35] CharacterAdded ban-handler disabler OK")
+    end)
+    pcall(function()
+        connections["ak_health_guard"] = task.spawn(function()
+            while AK.installed do
+                if AK.active then
+                    pcall(function()
+                        local c = lp.Character
+                        if c then
+                            local h = c:FindFirstChildOfClass("Humanoid")
+                            if h and h.Health <= 0 and h.MaxHealth > 0 then
+                                warn("[🛡️ L36] Auto-death detected → attempt to reset")
+                                pcall(function() h.Health = h.MaxHealth end)
+                            end
+                        end
+                    end)
+                end
+                task.wait(0.3)
+            end
+        end)
+        AK.layers = AK.layers + 1; print("[🛡️ L36] Auto-death health guard OK")
+    end)
+    print("[🛡️ ANTI-KICK v56] TRANSCENDENT защита — " .. AK.layers .. " слоёв активны!")
 end
 function AK:Toggle(state)
     self.active = state
@@ -4556,11 +4740,10 @@ local function makeTabBtn(id, label, x, w)
     end)
     return b
 end
-makeTabBtn("casts", "⚙️ Настр", 0, 0.20)
-makeTabBtn("tests", "🧪 Тест", 0.20, 0.19)
-makeTabBtn("npcs", "📋 NPC", 0.39, 0.18)
-makeTabBtn("analyzer", "🔬 Анлз", 0.57, 0.20)
-makeTabBtn("backdoors", "🚪 Бэкд", 0.77, 0.23)
+makeTabBtn("casts", "⚙️ Настр", 0, 0.25)
+makeTabBtn("npcs", "📋 NPC", 0.25, 0.22)
+makeTabBtn("analyzer", "🔬 Анлз", 0.47, 0.24)
+makeTabBtn("backdoors", "🚪 Бэкдоры", 0.71, 0.29)
 local panelArea = newInst("Frame", {
     Size = UDim2.new(1, -12, 1, -122),
     Position = UDim2.new(0, 6, 0, 116),
@@ -4782,66 +4965,6 @@ reBtn.MouseButton1Click:Connect(function()
     reBtn.Text = "🔄 OK " .. #DeepData.CombatRemotes
     task.delay(2, function() reBtn.Text = "🔄 Rescan" end)
 end)
-local testsPanel = newInst("Frame", {
-    Size = UDim2.new(1, 0, 1, 0),
-    BackgroundTransparency = 1,
-    Visible = false,
-    ZIndex = 11
-}, panelArea)
-tabPanels.tests = testsPanel
-local TEST_MIN_ID = 277
-local testScroll = newInst("ScrollingFrame", {
-    Size = UDim2.new(1, -4, 1, 0),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-    ScrollBarThickness = 4,
-    ScrollBarImageColor3 = Color3.fromRGB(100, 100, 130),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    CanvasSize = UDim2.new(0, 0, 0, 0),
-    ZIndex = 11
-}, testsPanel)
-local testList = newInst("UIListLayout", { Padding = UDim.new(0, 4) }, testScroll)
-for _, method in ipairs(MethodRegistry) do
-    if method.id >= TEST_MIN_ID then
-        local ci
-        for _, c in ipairs(CastInfo) do if c.key == method.cast then ci = c; break end end
-        local b = newInst("TextButton", {
-            Size = UDim2.new(1, -8, 0, 38),
-            Text = "",
-            BackgroundColor3 = ci and ci.color or Color3.fromRGB(50, 50, 60),
-            BorderSizePixel = 0,
-            ZIndex = 12
-        }, testScroll)
-        makeCorner(b, 5)
-        local t1 = newInst("TextLabel", {
-            Size = UDim2.new(1, -10, 0, 18),
-            Position = UDim2.new(0, 5, 0, 2),
-            Text = method.name,
-            Font = Enum.Font.GothamBold,
-            TextSize = 11,
-            TextColor3 = Color3.fromRGB(255, 255, 255),
-            BackgroundTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 13
-        }, b)
-        local t2 = newInst("TextLabel", {
-            Size = UDim2.new(1, -10, 0, 15),
-            Position = UDim2.new(0, 5, 0, 20),
-            Text = method.desc,
-            Font = Enum.Font.SourceSans,
-            TextSize = 10,
-            TextColor3 = Color3.fromRGB(230, 230, 240),
-            BackgroundTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 13
-        }, b)
-        b.MouseButton1Click:Connect(function()
-            local t = getTargets()
-            if #t == 0 then warn("[TEST] Выбери цель!"); return end
-            for _, o in ipairs(t) do task.spawn(function() pcall(function() method.fn(o) end) end) end
-        end)
-    end
-end
 local npcsPanel = newInst("Frame", {
     Size = UDim2.new(1, 0, 1, 0),
     BackgroundTransparency = 1,
@@ -5135,7 +5258,7 @@ end)
 refreshAnalyzer()
 task.spawn(function()
     while true do
-        task.wait(15)
+        task.wait(30)
         if tabPanels.analyzer and tabPanels.analyzer.Visible then
             pcall(refreshAnalyzer)
         end
@@ -5175,22 +5298,29 @@ local function tryExecuteBackdoor(bd)
             local rem = bd.remote
             if not rem or not rem.Parent then return end
             local args = bd.suggestedArgs or {}
+            local fired = 0
             if #args == 0 then
                 if rem:IsA("RemoteEvent") then
-                    rem:FireServer()
-                    rem:FireServer(lp)
-                    rem:FireServer(lp.Name)
+                    pcall(function() rem:FireServer(); fired = fired + 1 end)
+                    pcall(function() rem:FireServer(lp); fired = fired + 1 end)
+                    pcall(function() rem:FireServer(lp.Name); fired = fired + 1 end)
                 elseif rem:IsA("RemoteFunction") then
-                    task.spawn(function() rem:InvokeServer() end)
-                    task.spawn(function() rem:InvokeServer(lp) end)
+                    task.spawn(function() pcall(function() rem:InvokeServer() end) end)
+                    task.spawn(function() pcall(function() rem:InvokeServer(lp) end) end)
+                    fired = fired + 2
                 end
             else
                 for _, a in ipairs(args) do
-                    if rem:IsA("RemoteEvent") then pcall(function() rem:FireServer(a) end)
-                    elseif rem:IsA("RemoteFunction") then task.spawn(function() pcall(function() rem:InvokeServer(a) end) end) end
+                    if type(a) == "table" then
+                        if rem:IsA("RemoteEvent") then pcall(function() rem:FireServer(unpack(a)); fired = fired + 1 end)
+                        elseif rem:IsA("RemoteFunction") then task.spawn(function() pcall(function() rem:InvokeServer(unpack(a)) end); fired = fired + 1 end) end
+                    else
+                        if rem:IsA("RemoteEvent") then pcall(function() rem:FireServer(a); fired = fired + 1 end)
+                        elseif rem:IsA("RemoteFunction") then task.spawn(function() pcall(function() rem:InvokeServer(a) end); fired = fired + 1 end) end
+                    end
                 end
             end
-            warn("[🚪 EXEC] Fired: " .. bd.path .. " with " .. tostring(#args) .. " args")
+            warn("[🚪 EXEC " .. (bd.effectIcon or "?") .. "] " .. (bd.effect or "?") .. " → " .. bd.path .. " (fired " .. fired .. " variants)")
         end)
     elseif bd.fn then
         pcall(function() bd.fn() end)
@@ -5232,24 +5362,13 @@ local function refreshBackdoors()
             ZIndex = 12
         }, bdScroll)
         makeCorner(btn, 4)
-        local riskLbl = newInst("TextLabel", {
-            Size = UDim2.new(0, 70, 0, 16),
+        local effectLbl = newInst("TextLabel", {
+            Size = UDim2.new(1, -8, 0, 16),
             Position = UDim2.new(0, 4, 0, 2),
-            Text = "[" .. bd.risk .. "]",
+            Text = (bd.effectIcon or "❓") .. " " .. (bd.effect or "UNKNOWN") .. "  [" .. bd.risk .. "]",
             Font = Enum.Font.GothamBold,
-            TextSize = 10,
+            TextSize = 11,
             TextColor3 = Color3.fromRGB(255, 255, 255),
-            BackgroundTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 13
-        }, btn)
-        local classLbl = newInst("TextLabel", {
-            Size = UDim2.new(1, -80, 0, 16),
-            Position = UDim2.new(0, 76, 0, 2),
-            Text = bd.class or "?",
-            Font = Enum.Font.SourceSansBold,
-            TextSize = 10,
-            TextColor3 = Color3.fromRGB(200, 220, 255),
             BackgroundTransparency = 1,
             TextXAlignment = Enum.TextXAlignment.Left,
             ZIndex = 13
