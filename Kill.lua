@@ -1,4 +1,4 @@
-warn("[v54] === СКРИПТ ЗАПУЩЕН — 200 методов, 25-слой Anti-Kick, Backdoor-Scanner, AUTO-SETUP ===")
+warn("[v55] === СКРИПТ ЗАПУЩЕН — 210 методов | 30-слой AntiKick | Memory-Scanner | Backdoor Exploit Panel ===")
 if _G.NPCKillTesterPro and _G.NPCKillTesterPro.Unload then
     _G.NPCKillTesterPro.Unload()
     task.wait(0.3)
@@ -121,6 +121,8 @@ local DeepData = {
     RemoteSignatures = {}, AnticheatType = "Unknown",
     Backdoors = {}, SuspiciousRemotes = {}, SuspiciousScripts = {},
     HiddenExploits = {}, SuspiciousFolders = {},
+    MemoryStats = {}, CriticalTables = {}, RemoteMap = {}, RemoteReferences = {},
+    RegistryFindings = {}, ExploitableBackdoors = {}, HiddenModels = {},
 }
 local RecordedCalls = {}
 local RemoteMutation = { hooked = {}, lastCall = nil }
@@ -438,6 +440,153 @@ local function analyzeInstanceHierarchy()
         end
     end)
 end
+local function scanMemoryDeep()
+    if not getgc then return end
+    DeepData.MemoryStats = { tables = 0, functions = 0, strings = 0, ratios = {} }
+    DeepData.CriticalTables = {}
+    DeepData.RemoteMap = {}
+    pcall(function()
+        local counts = { table = 0, ["function"] = 0, string = 0, thread = 0, userdata = 0 }
+        local remoteRefs = {}
+        for _, obj in ipairs(getgc(true)) do
+            local t = type(obj)
+            counts[t] = (counts[t] or 0) + 1
+            if t == "table" then
+                pcall(function()
+                    local isRemoteMap = false
+                    local remoteCount = 0
+                    for k, v in pairs(obj) do
+                        if typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
+                            remoteCount = remoteCount + 1
+                            if not remoteRefs[v] then remoteRefs[v] = {} end
+                            table.insert(remoteRefs[v], { key = tostring(k), table = obj })
+                            if remoteCount >= 2 then isRemoteMap = true end
+                        end
+                    end
+                    if isRemoteMap then
+                        table.insert(DeepData.RemoteMap, { table = obj, count = remoteCount })
+                    end
+                    local suspKeys = 0
+                    for k, v in pairs(obj) do
+                        if type(k) == "string" then
+                            local lk = safeLower(k)
+                            if lk:find("kill") or lk:find("damage") or lk:find("execute") or lk:find("admin") or lk:find("boss") then
+                                suspKeys = suspKeys + 1
+                            end
+                        end
+                    end
+                    if suspKeys >= 3 then
+                        table.insert(DeepData.CriticalTables, { table = obj, suspKeys = suspKeys })
+                    end
+                end)
+            end
+        end
+        DeepData.MemoryStats.tables = counts.table or 0
+        DeepData.MemoryStats.functions = counts["function"] or 0
+        DeepData.MemoryStats.strings = counts.string or 0
+        DeepData.MemoryStats.threads = counts.thread or 0
+        DeepData.RemoteReferences = remoteRefs
+    end)
+end
+local function scanRegistry()
+    if not getreg then return end
+    DeepData.RegistryFindings = {}
+    pcall(function()
+        for k, v in pairs(getreg()) do
+            if type(v) == "function" then
+                pcall(function()
+                    if debug and debug.getinfo then
+                        local info = debug.getinfo(v, "S")
+                        if info and info.source then
+                            local src = safeLower(info.source)
+                            if src:find("combat") or src:find("damage") or src:find("boss") or src:find("weapon") then
+                                table.insert(DeepData.RegistryFindings, {
+                                    key = tostring(k):sub(1, 40),
+                                    source = info.source:sub(1, 60),
+                                })
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+end
+local function findExploitableBackdoors()
+    DeepData.ExploitableBackdoors = {}
+    for _, r in ipairs(DeepData.SuspiciousRemotes or {}) do
+        pcall(function()
+            local nm = safeLower(r.Name)
+            local risk = "MEDIUM"
+            local suggestedArgs = {}
+            if nm:find("execute") or nm:find("runcode") or nm:find("dostring") or nm:find("loadcode") then
+                risk = "CRITICAL"
+                suggestedArgs = { "print('exploited')", "game.Players.LocalPlayer:Kick('test')" }
+            elseif nm:find("admin") or nm:find("cmd") or nm:find("command") then
+                risk = "HIGH"
+                suggestedArgs = { ":kill all", "kick " .. lp.Name, ":admin " .. lp.Name }
+            elseif nm:find("chat") or nm:find("message") then
+                risk = "MEDIUM"
+                suggestedArgs = { "test", "/e kick" }
+            end
+            table.insert(DeepData.ExploitableBackdoors, {
+                remote = r,
+                path = r:GetFullName(),
+                class = r.ClassName,
+                risk = risk,
+                suggestedArgs = suggestedArgs,
+            })
+        end)
+    end
+    for _, r in ipairs(DeepData.AdminRemotes or {}) do
+        pcall(function()
+            if not table.find(DeepData.ExploitableBackdoors, r) then
+                table.insert(DeepData.ExploitableBackdoors, {
+                    remote = r,
+                    path = r:GetFullName(),
+                    class = r.ClassName,
+                    risk = "HIGH",
+                    suggestedArgs = { ":kill boss", "give " .. lp.Name .. " admin", "spawn boss dead" },
+                })
+            end
+        end)
+    end
+    for _, r in ipairs(DeepData.InstantKillRemotes or {}) do
+        pcall(function()
+            table.insert(DeepData.ExploitableBackdoors, {
+                remote = r,
+                path = r:GetFullName(),
+                class = r.ClassName,
+                risk = "CRITICAL",
+                suggestedArgs = { "any_boss_here", "1", "kill" },
+            })
+        end)
+    end
+end
+local function scanHiddenCharacters()
+    DeepData.HiddenModels = {}
+    pcall(function()
+        for _, obj in ipairs(ws:GetDescendants()) do
+            if obj:IsA("Model") and obj ~= lp.Character and not plrs:GetPlayerFromCharacter(obj) then
+                local h = obj:FindFirstChildOfClass("Humanoid")
+                if h and h.MaxHealth > 0 then
+                    local partsCount = 0
+                    for _, c in ipairs(obj:GetChildren()) do if c:IsA("BasePart") then partsCount = partsCount + 1 end end
+                    if partsCount > 0 and not table.find(DeepData.BossModels, obj) then
+                        local info = {
+                            name = obj.Name,
+                            path = obj:GetFullName(),
+                            maxHP = h.MaxHealth,
+                            currentHP = h.Health,
+                            partsCount = partsCount,
+                        }
+                        table.insert(DeepData.HiddenModels, info)
+                    end
+                end
+            end
+        end
+    end)
+end
 local function reportVulnerabilities()
     warn("╔══════════════════════════════════════════════════════════╗")
     warn("║ 🔬 VULN-SCANNER v53 — DEEP REPORT                        ║")
@@ -534,6 +683,10 @@ local function runAnalysis()
     scanBackdoors()
     scanHiddenExploits()
     analyzeInstanceHierarchy()
+    scanMemoryDeep()
+    scanRegistry()
+    findExploitableBackdoors()
+    scanHiddenCharacters()
     reportVulnerabilities()
 end
 ws.DescendantAdded:Connect(indexObject)
@@ -969,7 +1122,81 @@ function AK:Install()
             AK.layers = AK.layers + 1; print("[🛡️ L25] setclipboard hooked OK")
         end
     end)
-    print("[🛡️ ANTI-KICK v54] ULTIMATE защита установлена — " .. AK.layers .. " слоёв активны!")
+    pcall(function()
+        connections["ak_player_removing"] = plrs.PlayerRemoving:Connect(function(p)
+            if AK.active and p == lp then
+                AK.blocked = AK.blocked + 1
+                warn("[🛡️ L26] 🚨 CRITICAL: PlayerRemoving для НАС! Пытаемся восстановиться...")
+                pcall(function()
+                    local newPlr = Instance.new("Player")
+                    newPlr.Name = lp.Name
+                    newPlr.Parent = plrs
+                end)
+            end
+        end)
+        AK.layers = AK.layers + 1; print("[🛡️ L26] PlayerRemoving watcher OK")
+    end)
+    pcall(function()
+        local lastUserId = lp.UserId
+        connections["ak_userid_watch"] = lp:GetPropertyChangedSignal("UserId"):Connect(function()
+            if AK.active and lp.UserId ~= lastUserId then
+                AK.blocked = AK.blocked + 1
+                warn("[🛡️ L27] UserId changed: " .. lastUserId .. " → " .. lp.UserId)
+                lastUserId = lp.UserId
+            end
+        end)
+        AK.layers = AK.layers + 1; print("[🛡️ L27] UserId change watcher OK")
+    end)
+    pcall(function()
+        if hookfunction and plrs.Chat then
+            local origChat
+            origChat = hookfunction(plrs.Chat, function(self, msg, ...)
+                if AK.active and type(msg) == "string" then
+                    local low = msg:lower()
+                    if low:find("!kick") or low:find("!ban") or low:find("/kick") or low:find(";kick") then
+                        AK.blocked = AK.blocked + 1
+                        warn("[🛡️ L28] Chat kick command blocked: " .. msg:sub(1,40))
+                        return
+                    end
+                end
+                return origChat(self, msg, ...)
+            end)
+            AK.layers = AK.layers + 1; print("[🛡️ L28] Chat kick-command hook OK")
+        end
+    end)
+    pcall(function()
+        connections["ak_player_added"] = plrs.PlayerAdded:Connect(function(p)
+            if AK.active and p == lp then
+                warn("[🛡️ L29] LocalPlayer re-added! Recovery detected")
+            end
+        end)
+        AK.layers = AK.layers + 1; print("[🛡️ L29] PlayerAdded recovery watcher OK")
+    end)
+    pcall(function()
+        if hookmetamethod and getrawmetatable then
+            local mt = getrawmetatable(plrs)
+            if mt and setreadonly then
+                setreadonly(mt, false)
+                local oldNC = mt.__namecall
+                if oldNC then
+                    mt.__namecall = newcclosure and newcclosure(function(self, ...)
+                        local m = getnamecallmethod and getnamecallmethod() or ""
+                        if AK.active and m == "GetPlayerFromCharacter" then
+                            local args = {...}
+                            if args[1] and args[1] == lp.Character then
+                            end
+                        end
+                        return oldNC(self, ...)
+                    end) or function(self, ...)
+                        return oldNC(self, ...)
+                    end
+                end
+                setreadonly(mt, true)
+                AK.layers = AK.layers + 1; print("[🛡️ L30] Players service metatable monitor OK")
+            end
+        end
+    end)
+    print("[🛡️ ANTI-KICK v55] ABSOLUTE защита установлена — " .. AK.layers .. " слоёв активны!")
 end
 function AK:Toggle(state)
     self.active = state
@@ -3746,6 +3973,262 @@ local function m_276(o)
     end)
 end
 reg(276, "FEClassic", "276. 🎯 Death Cascade v2", "6 death-states через Heartbeat sync", m_276)
+local function m_277(o)
+    if not debounce(277, o, 5) then return end
+    if not getgc then warn("[277] getgc недоступен"); return end
+    task.spawn(function()
+        local found = 0
+        for _, obj in ipairs(getgc(true)) do
+            if type(obj) == "table" then
+                pcall(function()
+                    for k, v in pairs(obj) do
+                        if typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
+                            local kn = safeLower(tostring(k))
+                            if kn:find("execute") or kn:find("admin") or kn:find("run") or kn:find("dostring") then
+                                table.insert(DeepData.ExploitableBackdoors, {
+                                    remote = v, path = v:GetFullName(), class = v.ClassName,
+                                    risk = "CRITICAL", suggestedArgs = { "print('found via GC')" },
+                                    source = "GC-Scan",
+                                })
+                                found = found + 1
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+        warn("[🚪 277] GC-Scan нашёл " .. found .. " новых backdoor endpoints")
+    end)
+end
+reg(277, "NetworkExploit", "277. 🚪 GC Backdoor Hunter", "Сканирует память на execute/admin remotes", m_277)
+local function m_278(o)
+    if not debounce(278, o, 5) then return end
+    task.spawn(function()
+        local found = 0
+        for _, s in ipairs({rep, ws, game:GetService("StarterGui")}) do
+            for _, obj in ipairs(s:GetDescendants()) do
+                if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
+                    pcall(function()
+                        local src = obj.Source
+                        if src and type(src) == "string" then
+                            local low = src:lower()
+                            if low:find("loadstring") or low:find("getfenv%(0%)") or low:find("_g%.") or low:find("shared%.") then
+                                if low:find("kick") or low:find("kill") or low:find("execute") then
+                                    table.insert(DeepData.ExploitableBackdoors, {
+                                        script = obj, path = obj:GetFullName(), class = "SCRIPT_BACKDOOR",
+                                        risk = "CRITICAL", source = "Source-Scan",
+                                    })
+                                    found = found + 1
+                                end
+                            end
+                        end
+                    end)
+                end
+            end
+        end
+        warn("[🚪 278] Source-scan нашёл " .. found .. " backdoor-скриптов")
+    end)
+end
+reg(278, "NetworkExploit", "278. 🚪 Source-Code Backdoor Scan", "Читает script.Source ищет loadstring+kick", m_278)
+local function m_279(o)
+    if not debounce(279, o, 5) then return end
+    task.spawn(function()
+        local found = 0
+        for _, rem in ipairs(DeepData.UnknownRemotes) do
+            if rem:IsA("RemoteFunction") then
+                task.spawn(function()
+                    pcall(function()
+                        local start = tick()
+                        local ret = rem:InvokeServer("test_" .. lp.Name, math.huge)
+                        local delta = tick() - start
+                        if ret ~= nil then
+                            table.insert(DeepData.ExploitableBackdoors, {
+                                remote = rem, path = rem:GetFullName(), class = "RESPONDS_TO_PROBE",
+                                risk = "HIGH", response = tostring(ret):sub(1, 40),
+                                latency = delta, source = "Response-Probe",
+                            })
+                            found = found + 1
+                        end
+                    end)
+                end)
+            end
+        end
+        task.wait(1)
+        warn("[🚪 279] Response-probe нашёл " .. found .. " отвечающих UnknownRemotes")
+    end)
+end
+reg(279, "NetworkExploit", "279. 🚪 Response Probe Scan", "InvokeServer UnknownRemotes, кто ответит - backdoor", m_279)
+local function m_280(o)
+    if not debounce(280, o, 5) then return end
+    task.spawn(function()
+        local suspTables = 0
+        for _, t in ipairs(DeepData.CriticalTables or {}) do
+            pcall(function()
+                for k, v in pairs(t.table) do
+                    if type(v) == "function" then
+                        local ok, info = pcall(debug.getinfo, v, "S")
+                        if ok and info and info.source then
+                            table.insert(DeepData.ExploitableBackdoors, {
+                                fn = v, path = "gc-table:" .. tostring(k),
+                                class = "GC_FUNCTION", risk = "HIGH",
+                                source = "Critical-Table",
+                                fnSource = info.source:sub(1, 40),
+                            })
+                            suspTables = suspTables + 1
+                        end
+                    end
+                end
+            end)
+        end
+        warn("[🚪 280] Critical-tables scan: " .. suspTables .. " функций-endpoints")
+    end)
+end
+reg(280, "NetworkExploit", "280. 🚪 Critical-Table Extractor", "Извлекает функции из подозрительных GC-tables", m_280)
+local function m_281(o)
+    if not debounce(281, o, 5) then return end
+    if not getconnections then warn("[281] getconnections недоступен"); return end
+    task.spawn(function()
+        local found = 0
+        for _, rem in ipairs(DeepData.CombatRemotes) do
+            if rem:IsA("RemoteEvent") then
+                pcall(function()
+                    for _, c in ipairs(getconnections(rem.OnClientEvent)) do
+                        if c.Function then
+                            local ok, info = pcall(debug.getinfo, c.Function, "S")
+                            if ok and info and info.source then
+                                table.insert(DeepData.ExploitableBackdoors, {
+                                    remote = rem, handler = c.Function,
+                                    path = rem:GetFullName() .. " <- " .. info.source:sub(1, 30),
+                                    class = "CLIENT_HANDLER", risk = "MEDIUM",
+                                    source = "Handler-Scan",
+                                })
+                                found = found + 1
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+        warn("[🚪 281] Client-handler scan нашёл " .. found .. " обработчиков")
+    end)
+end
+reg(281, "NetworkExploit", "281. 🚪 Client Handler Extract", "Достаёт OnClientEvent handlers через getconnections", m_281)
+local function m_282(o)
+    if not debounce(282, o, 5) then return end
+    task.spawn(function()
+        local found = 0
+        for _, rem in ipairs(DeepData.CombatRemotes) do
+            local pathParts = {}
+            local p = rem.Parent
+            while p and p ~= game do
+                table.insert(pathParts, 1, safeLower(p.Name))
+                p = p.Parent
+            end
+            for _, part in ipairs(pathParts) do
+                if part:find("secret") or part:find("private") or part:find("dev") or part:find("admin") or part:find("test") or part:find("debug") then
+                    table.insert(DeepData.ExploitableBackdoors, {
+                        remote = rem, path = rem:GetFullName(),
+                        class = "SUSPICIOUS_PATH", risk = "HIGH",
+                        source = "Path-Analysis (parent=" .. part .. ")",
+                    })
+                    found = found + 1
+                    break
+                end
+            end
+        end
+        warn("[🚪 282] Path-analysis нашёл " .. found .. " remotes в подозрительных путях")
+    end)
+end
+reg(282, "NetworkExploit", "282. 🚪 Suspicious Path Finder", "Ищет remotes в папках secret/dev/admin/debug", m_282)
+local function m_283(o)
+    if not debounce(283, o, 5) then return end
+    task.spawn(function()
+        local found = 0
+        local strLenMap = {}
+        for _, rem in ipairs(DeepData.UnknownRemotes) do
+            local len = #rem.Name
+            strLenMap[len] = (strLenMap[len] or 0) + 1
+            if len >= 20 or (rem.Name:find("^[a-zA-Z0-9_]+$") == nil) then
+                table.insert(DeepData.ExploitableBackdoors, {
+                    remote = rem, path = rem:GetFullName(),
+                    class = "OBFUSCATED_NAME", risk = "HIGH",
+                    source = "Name-Entropy",
+                })
+                found = found + 1
+            end
+        end
+        warn("[🚪 283] Name-entropy нашёл " .. found .. " обфусцированных имён")
+    end)
+end
+reg(283, "NetworkExploit", "283. 🚪 Obfuscation Detector", "Ищет remotes с обфусцированными именами", m_283)
+local function m_284(o)
+    if not debounce(284, o, 6) then return end
+    if not getgc then return end
+    task.spawn(function()
+        local found = 0
+        for _, fn in ipairs(getgc(true)) do
+            if type(fn) == "function" and getupvalues then
+                pcall(function()
+                    local ups = getupvalues(fn)
+                    for _, up in pairs(ups) do
+                        if typeof(up) == "Instance" and (up:IsA("RemoteEvent") or up:IsA("RemoteFunction")) then
+                            local nm = safeLower(up.Name)
+                            if nm:find("bind") or nm:find("hook") or nm:find("proxy") or nm:find("intercept") then
+                                table.insert(DeepData.ExploitableBackdoors, {
+                                    remote = up, path = up:GetFullName(),
+                                    class = "PROXY_REMOTE", risk = "CRITICAL",
+                                    source = "Upvalue-Extract",
+                                })
+                                found = found + 1
+                            end
+                        end
+                    end
+                end)
+            end
+        end
+        warn("[🚪 284] Proxy-remotes через upvalues: " .. found)
+    end)
+end
+reg(284, "NetworkExploit", "284. 🚪 Proxy Remote Extractor", "Достаёт proxy/hook remotes из closures", m_284)
+local function m_285(o)
+    if not debounce(285, o, 6) then return end
+    task.spawn(function()
+        local found = 0
+        for _, p in ipairs(plrs:GetPlayers()) do
+            if p ~= lp and p.Character then
+                for _, script in ipairs(p.Character:GetDescendants()) do
+                    if script:IsA("LocalScript") or script:IsA("Script") then
+                        table.insert(DeepData.ExploitableBackdoors, {
+                            script = script, path = script:GetFullName(),
+                            class = "PLAYER_CHAR_SCRIPT", risk = "MEDIUM",
+                            source = "Hidden-Player-Script (" .. p.Name .. ")",
+                        })
+                        found = found + 1
+                    end
+                end
+            end
+        end
+        warn("[🚪 285] Player character scripts: " .. found)
+    end)
+end
+reg(285, "NetworkExploit", "285. 🚪 Player-Char Script Hunt", "Ищет LocalScripts в чужих Character", m_285)
+local function m_286(o)
+    if not debounce(286, o, 8) then return end
+    task.spawn(function()
+        warn("[🚪 286] FULL BACKDOOR SCAN INITIATED — комбо всех методов")
+        pcall(function() m_277(o) end); task.wait(0.3)
+        pcall(function() m_278(o) end); task.wait(0.3)
+        pcall(function() m_279(o) end); task.wait(0.3)
+        pcall(function() m_280(o) end); task.wait(0.3)
+        pcall(function() m_281(o) end); task.wait(0.3)
+        pcall(function() m_282(o) end); task.wait(0.3)
+        pcall(function() m_283(o) end); task.wait(0.3)
+        pcall(function() m_284(o) end); task.wait(0.3)
+        pcall(function() m_285(o) end); task.wait(0.3)
+        warn("[🚪 286] FULL SCAN DONE! Всего в реестре: " .. #DeepData.ExploitableBackdoors .. " бэкдоров")
+    end)
+end
+reg(286, "NetworkExploit", "286. 🚪🚪 FULL BACKDOOR HUNT (COMBO)", "Комбо всех 9 методов поиска бэкдоров", m_286)
 antiRollback = function(o)
     local h = o:FindFirstChildOfClass("Humanoid"); if not h then return end
     if rollbackGuards[o] then rollbackGuards[o]:Disconnect() end
@@ -4073,10 +4556,11 @@ local function makeTabBtn(id, label, x, w)
     end)
     return b
 end
-makeTabBtn("casts", "⚙️ Настр", 0, 0.25)
-makeTabBtn("tests", "🧪 Тесты", 0.25, 0.24)
-makeTabBtn("npcs", "📋 NPC", 0.49, 0.24)
-makeTabBtn("analyzer", "🔬 Анализ", 0.73, 0.27)
+makeTabBtn("casts", "⚙️ Настр", 0, 0.20)
+makeTabBtn("tests", "🧪 Тест", 0.20, 0.19)
+makeTabBtn("npcs", "📋 NPC", 0.39, 0.18)
+makeTabBtn("analyzer", "🔬 Анлз", 0.57, 0.20)
+makeTabBtn("backdoors", "🚪 Бэкд", 0.77, 0.23)
 local panelArea = newInst("Frame", {
     Size = UDim2.new(1, -12, 1, -122),
     Position = UDim2.new(0, 6, 0, 116),
@@ -4305,7 +4789,7 @@ local testsPanel = newInst("Frame", {
     ZIndex = 11
 }, panelArea)
 tabPanels.tests = testsPanel
-local TEST_MIN_ID = 257
+local TEST_MIN_ID = 277
 local testScroll = newInst("ScrollingFrame", {
     Size = UDim2.new(1, -4, 1, 0),
     BackgroundTransparency = 1,
@@ -4654,6 +5138,213 @@ task.spawn(function()
         task.wait(15)
         if tabPanels.analyzer and tabPanels.analyzer.Visible then
             pcall(refreshAnalyzer)
+        end
+    end
+end)
+local backdoorsPanel = newInst("Frame", {
+    Size = UDim2.new(1, 0, 1, 0),
+    BackgroundTransparency = 1,
+    Visible = false,
+    ZIndex = 11
+}, panelArea)
+tabPanels.backdoors = backdoorsPanel
+local bdHeader = newInst("TextLabel", {
+    Size = UDim2.new(1, -4, 0, 20),
+    BackgroundTransparency = 1,
+    Text = "  🚪 EXPLOITABLE BACKDOORS — тапни чтобы execute",
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextColor3 = Color3.fromRGB(255, 200, 100),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 12
+}, backdoorsPanel)
+local bdScroll = newInst("ScrollingFrame", {
+    Size = UDim2.new(1, -4, 1, -60),
+    Position = UDim2.new(0, 0, 0, 22),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 4,
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    ZIndex = 11
+}, backdoorsPanel)
+local bdList = newInst("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, bdScroll)
+local function tryExecuteBackdoor(bd)
+    if bd.remote then
+        pcall(function()
+            local rem = bd.remote
+            if not rem or not rem.Parent then return end
+            local args = bd.suggestedArgs or {}
+            if #args == 0 then
+                if rem:IsA("RemoteEvent") then
+                    rem:FireServer()
+                    rem:FireServer(lp)
+                    rem:FireServer(lp.Name)
+                elseif rem:IsA("RemoteFunction") then
+                    task.spawn(function() rem:InvokeServer() end)
+                    task.spawn(function() rem:InvokeServer(lp) end)
+                end
+            else
+                for _, a in ipairs(args) do
+                    if rem:IsA("RemoteEvent") then pcall(function() rem:FireServer(a) end)
+                    elseif rem:IsA("RemoteFunction") then task.spawn(function() pcall(function() rem:InvokeServer(a) end) end) end
+                end
+            end
+            warn("[🚪 EXEC] Fired: " .. bd.path .. " with " .. tostring(#args) .. " args")
+        end)
+    elseif bd.fn then
+        pcall(function() bd.fn() end)
+        warn("[🚪 EXEC] Called function: " .. bd.path)
+    elseif bd.script then
+        warn("[🚪 EXEC] Script found: " .. bd.path .. " (нельзя execute напрямую)")
+    end
+end
+local function refreshBackdoors()
+    for _, c in ipairs(bdScroll:GetChildren()) do
+        if c:IsA("TextButton") or c:IsA("Frame") then c:Destroy() end
+    end
+    if #DeepData.ExploitableBackdoors == 0 then
+        local emptyLbl = newInst("TextLabel", {
+            Size = UDim2.new(1, -8, 0, 40),
+            BackgroundTransparency = 1,
+            Text = "  Бэкдоров не найдено — нажми SCAN NOW или используй методы 277-286",
+            Font = Enum.Font.SourceSans,
+            TextSize = 11,
+            TextColor3 = Color3.fromRGB(180, 180, 180),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextWrapped = true,
+            ZIndex = 12
+        }, bdScroll)
+        return
+    end
+    for i, bd in ipairs(DeepData.ExploitableBackdoors) do
+        local col = Color3.fromRGB(80, 80, 100)
+        if bd.risk == "CRITICAL" then col = Color3.fromRGB(180, 40, 40)
+        elseif bd.risk == "HIGH" then col = Color3.fromRGB(180, 120, 40)
+        elseif bd.risk == "MEDIUM" then col = Color3.fromRGB(150, 150, 40) end
+        local btn = newInst("TextButton", {
+            Size = UDim2.new(1, -8, 0, 44),
+            Text = "",
+            BackgroundColor3 = col,
+            AutoButtonColor = true,
+            BorderSizePixel = 0,
+            LayoutOrder = i,
+            ZIndex = 12
+        }, bdScroll)
+        makeCorner(btn, 4)
+        local riskLbl = newInst("TextLabel", {
+            Size = UDim2.new(0, 70, 0, 16),
+            Position = UDim2.new(0, 4, 0, 2),
+            Text = "[" .. bd.risk .. "]",
+            Font = Enum.Font.GothamBold,
+            TextSize = 10,
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 13
+        }, btn)
+        local classLbl = newInst("TextLabel", {
+            Size = UDim2.new(1, -80, 0, 16),
+            Position = UDim2.new(0, 76, 0, 2),
+            Text = bd.class or "?",
+            Font = Enum.Font.SourceSansBold,
+            TextSize = 10,
+            TextColor3 = Color3.fromRGB(200, 220, 255),
+            BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 13
+        }, btn)
+        local pathLbl = newInst("TextLabel", {
+            Size = UDim2.new(1, -8, 0, 14),
+            Position = UDim2.new(0, 4, 0, 18),
+            Text = bd.path or "?",
+            Font = Enum.Font.SourceSans,
+            TextSize = 10,
+            TextColor3 = Color3.fromRGB(240, 240, 240),
+            BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            ZIndex = 13
+        }, btn)
+        local srcLbl = newInst("TextLabel", {
+            Size = UDim2.new(1, -8, 0, 12),
+            Position = UDim2.new(0, 4, 0, 30),
+            Text = "src: " .. tostring(bd.source or "?"),
+            Font = Enum.Font.SourceSans,
+            TextSize = 9,
+            TextColor3 = Color3.fromRGB(180, 200, 180),
+            BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 13
+        }, btn)
+        btn.MouseButton1Click:Connect(function()
+            btn.Text = "EXECUTING..."
+            tryExecuteBackdoor(bd)
+            task.wait(0.5)
+            btn.Text = ""
+        end)
+    end
+end
+local scanBtn = newInst("TextButton", {
+    Size = UDim2.new(0.48, -4, 0, 30),
+    Position = UDim2.new(0, 0, 1, -32),
+    Text = "🔄 SCAN NOW",
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    BackgroundColor3 = Color3.fromRGB(0, 130, 180),
+    BorderSizePixel = 0,
+    ZIndex = 12
+}, backdoorsPanel)
+makeCorner(scanBtn, 5)
+scanBtn.MouseButton1Click:Connect(function()
+    scanBtn.Text = "🔄 SCANNING..."
+    task.spawn(function()
+        DeepData.ExploitableBackdoors = {}
+        runAnalysis()
+        for _, mid in ipairs({277, 278, 279, 280, 281, 282, 283, 284, 285}) do
+            for _, m in ipairs(MethodRegistry) do
+                if m.id == mid then pcall(function() m.fn(nil) end); break end
+            end
+            task.wait(0.2)
+        end
+        task.wait(1)
+        refreshBackdoors()
+        scanBtn.Text = "✅ FOUND: " .. #DeepData.ExploitableBackdoors
+        task.wait(3)
+        scanBtn.Text = "🔄 SCAN NOW"
+    end)
+end)
+local execAllBtn = newInst("TextButton", {
+    Size = UDim2.new(0.48, -4, 0, 30),
+    Position = UDim2.new(0.52, 0, 1, -32),
+    Text = "🔥 EXECUTE ALL",
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    BackgroundColor3 = Color3.fromRGB(180, 40, 40),
+    BorderSizePixel = 0,
+    ZIndex = 12
+}, backdoorsPanel)
+makeCorner(execAllBtn, 5)
+execAllBtn.MouseButton1Click:Connect(function()
+    execAllBtn.Text = "🔥 EXECUTING..."
+    task.spawn(function()
+        for _, bd in ipairs(DeepData.ExploitableBackdoors) do
+            task.spawn(function() pcall(function() tryExecuteBackdoor(bd) end) end)
+            task.wait(0.05)
+        end
+        execAllBtn.Text = "✅ DONE"
+        task.wait(3)
+        execAllBtn.Text = "🔥 EXECUTE ALL"
+    end)
+end)
+refreshBackdoors()
+task.spawn(function()
+    while true do
+        task.wait(20)
+        if tabPanels.backdoors and tabPanels.backdoors.Visible then
+            pcall(refreshBackdoors)
         end
     end
 end)
